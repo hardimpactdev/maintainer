@@ -1,0 +1,29 @@
+{
+    "zod": [
+        {
+            "id": 1243066,
+            "url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
+            "title": "Zod can exhaust memory while validating oversized constrained collections",
+            "severity": "high",
+            "vulnerable_versions": "<4.6.6"
+        }
+    ],
+    "vite-plus": [
+        {
+            "id": 1242723,
+            "url": "https://github.com/advisories/GHSA-9jrq-w75r-8gcw",
+            "title": "Vite: Cross origin script execution through Vite custom middleware",
+            "severity": "low",
+            "vulnerable_versions": "<=1.0.0"
+        }
+    ],
+    "@vitest/mocker": [
+        {
+            "id": 111,
+            "url": "https://github.com/advisories/GHSA-mock",
+            "title": "Vitest mocker advisory",
+            "severity": "moderate",
+            "vulnerable_versions": "<4.1.12"
+        }
+    ]
+}

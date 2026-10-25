@@ -1,0 +1,32 @@
+{
+    "name": "hardimpactdev/maintainer",
+    "description": "Repo-owned dependency updates for Composer, npm, Bun, and Expo.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.4"
+    },
+    "require-dev": {
+        "pestphp/pest": "^5.0"
+    },
+    "autoload": {
+        "classmap": [
+            "src/"
+        ]
+    },
+    "bin": [
+        "bin/maintainer"
+    ],
+    "scripts": {
+        "test": "pest --colors=never"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "platform": {
+            "php": "8.4.1"
+        },
+        "sort-packages": true
+    }
+}
