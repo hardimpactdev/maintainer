@@ -85,7 +85,7 @@ The package never silences an advisory and never runs `audit fix`.
 
 - Composer: when `vet.json` already has `minimum-release-age`, a security update adds that one package to `minimum-release-age-exclude`.
 - Bun: when `bunfig.toml` already has `[install]` and `minimumReleaseAge`, a security update adds that one package to `install.minimumReleaseAgeExcludes`. The value is seconds. Seven days is `604800`.
-- npm: the security install passes `--min-release-age=0` for that one command (`vp add -- --min-release-age=0` when Vite+ delegates to npm). `.npmrc` is not changed. npm 11.12 ignores `min-release-age-exclude`, so a scoped exclude is not used.
+- npm: the security install passes `--min-release-age=0` for that one package only (`vp add -- --min-release-age=0` when Vite+ delegates to npm). `.npmrc` is not changed, and `packageManager` is not changed. npm 11.12.0 ignores `min-release-age-exclude` and still returns `ETARGET` for a release inside the seven-day cutoff. npm 11.17.0 honours the exclude, but the command does not use it and does not upgrade npm.
 
 Each Composer or Bun exception is also recorded in `maintainer-exceptions.json` with the date it was added. A later `detect` adds `stale_exceptions` after the age window has passed and the package is still excluded. Remove the exclusion then. Detect does not delete it for you. The npm flag is not written to disk, so there is nothing to remove later.
 

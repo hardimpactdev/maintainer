@@ -27,6 +27,26 @@ if ($fixture) {
         exit($response['code'] ?? 0);
     }
 }
+// npm 11.12 ignores min-release-age-exclude and still enforces min-release-age.
+// A fresh security fix must pass --min-release-age=0. The pinned packageManager stays.
+$isNpmInstall = ($name === 'vp' && ($argv[1] ?? '') === 'add') || ($name === 'npm' && ($argv[1] ?? '') === 'install');
+if ($isNpmInstall && is_file('package.json')) {
+    $manifest = json_decode((string) file_get_contents('package.json'), true);
+    $declared = is_array($manifest) ? ($manifest['packageManager'] ?? '') : '';
+    if (is_string($declared) && preg_match('/^npm@(\d+)\.(\d+)\.(\d+)/', $declared, $npm) === 1
+        && version_compare($npm[1].'.'.$npm[2].'.'.$npm[3], '11.17.0', '<')
+        && ! in_array('--min-release-age=0', $argv, true)) {
+        $npmrc = is_file('.npmrc') ? (string) file_get_contents('.npmrc') : '';
+        $wroteExclude = preg_match('/^\s*min-release-age-exclude\[\]\s*=/m', $npmrc) === 1;
+        if ($wroteExclude || getenv('DEPENDENCY_TEST_NPM_FRESH') === '1') {
+            if ($wroteExclude) {
+                fwrite(STDERR, "npm warn Unknown project config \"min-release-age-exclude\". This will stop working in the next major version of npm.\n");
+            }
+            fwrite(STDERR, "npm error code ETARGET\nnpm error notarget No matching version found. The release is younger than the min-release-age cutoff.\n");
+            exit(1);
+        }
+    }
+}
 if ($name === 'composer' && $argv[1] === 'require') {
     [$package, $range] = explode(':', $argv[2], 2);
     $file = 'composer.json';

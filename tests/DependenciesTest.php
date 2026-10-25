@@ -159,17 +159,23 @@ describe('detect and package', function () {
         [['package', 'composer', 'livewire/livewire', '4.9.9', 'security']],
     ]);
 
-    it('uses one npm install flag for an exact security fix and does not rewrite .npmrc', function () {
+    it('installs an npm 11.12 security fix with one age bypass and leaves the pinned manager', function () {
         file_put_contents($this->repo.'/.npmrc', "min-release-age=7\n");
+        $before = json_decode((string) file_get_contents($this->repo.'/package.json'), true);
+        expect($before['packageManager'])->toBe('npm@11.12.0');
         $result = runMaintainer($this->directory, $this->repo, ['package', 'js', '@scope/tool', '1.2.3', 'security', '123'], [
             'vp pm audit --json' => [
                 ['code' => 1, 'data' => ['vulnerabilities' => ['@scope/tool' => ['via' => [['source' => 123, 'url' => 'https://github.com/advisories/GHSA-test']]]]]],
                 ['data' => ['vulnerabilities' => []]],
             ],
-        ]);
-        expect($result->getExitCode())->toBe(0, $result->getErrorOutput())
+        ], ['DEPENDENCY_TEST_NPM_FRESH' => '1']);
+        $after = json_decode((string) file_get_contents($this->repo.'/package.json'), true);
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and(commandLog($this->directory))->toContain('vp|add @scope/tool@1.2.3 --save-dev --save-exact -- --min-release-age=0|')
             ->and(file_get_contents($this->repo.'/.npmrc'))->toBe("min-release-age=7\n")
+            ->and($after['packageManager'])->toBe('npm@11.12.0')
+            ->and($after['devDependencies']['@scope/tool'])->toBe('1.2.3')
+            ->and($result->getErrorOutput())->not->toContain('ETARGET')
             ->and(is_file($this->repo.'/maintainer-exceptions.json'))->toBeFalse();
     });
 
