@@ -18,6 +18,32 @@ final class Process
     }
 
     /**
+     * Run a bootstrap command. Its stdout and stderr both stay off the JSON stdout.
+     *
+     * @param list<string> $args
+     */
+    public function runToStderr(array $args): void
+    {
+        $out = tmpfile();
+        if ($out === false) {
+            throw new Failure('Could not capture '.$args[0], 70);
+        }
+        $code = $this->execute($args, [$out, STDERR]);
+        rewind($out);
+        $text = stream_get_contents($out);
+        fclose($out);
+        if (! is_string($text)) {
+            throw new Failure('Could not capture '.$args[0], 70);
+        }
+        if ($text !== '') {
+            fwrite(STDERR, $text);
+        }
+        if ($code !== 0) {
+            throw new CommandFailed($code);
+        }
+    }
+
+    /**
      * @param list<string> $args
      * @return array<mixed>
      */
