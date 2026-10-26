@@ -568,9 +568,111 @@ describe('summary', function () {
             ->and($result->getErrorOutput())->not->toContain('Cannot attach bun advisory', 'lodash');
     });
 
+    it('lists cleared advisories on an npm alias', function () {
+        $manifest = json_decode((string) file_get_contents($this->repo.'/package.json'), true);
+        $manifest['dependencies']['alias'] = 'npm:lodash@4.17.20';
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        $alias = [
+            'name' => 'lodash',
+            'version' => '4.17.20',
+            'resolved' => 'https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz',
+            'integrity' => 'sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA==',
+            'license' => 'MIT',
+        ];
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => (string) file_get_contents($this->repo.'/composer.json'),
+            'package.json' => json_encode($manifest),
+            'package-lock.json' => npmLock(['alias' => $alias, 'vite-plus' => '0.1.0']),
+            'composer.lock' => composerLock(['livewire/livewire' => '4.2.0']),
+        ]);
+        $manifest['dependencies']['alias'] = 'npm:lodash@4.17.21';
+        $alias['version'] = '4.17.21';
+        $alias['resolved'] = 'https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz';
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        file_put_contents($this->repo.'/package-lock.json', npmLock(['alias' => $alias, 'vite-plus' => '0.1.0']));
+        $cleared = [
+            [1065, 'GHSA-35jh-r3h4-6jhm', 'Prototype pollution in lodash', '<4.17.21'],
+            [1080, 'GHSA-29mw-wpgm-hmr9', 'Command injection in lodash', '<4.17.21'],
+        ];
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [['data' => ['advisories' => []]]],
+            'vp pm audit --json' => [
+                ['data' => ['vulnerabilities' => []]],
+                ['code' => 1, 'data' => npmAliasFinding('lodash', 'alias', $cleared)],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toBe(summaryText(
+                'Update alias to 4.17.21 (security fix)',
+                'Updated alias from 4.17.20 to 4.17.21 to fix a security advisory.',
+                'Nothing changes for users of the app.',
+                [[
+                    'alias',
+                    '4.17.20',
+                    '4.17.21',
+                    'security fix [1065](https://github.com/advisories/GHSA-35jh-r3h4-6jhm), [1080](https://github.com/advisories/GHSA-29mw-wpgm-hmr9)',
+                ]],
+            ));
+    });
+
+    it('does not call open advisories fixed when a direct package becomes an npm alias', function () {
+        $manifest = json_decode((string) file_get_contents($this->repo.'/package.json'), true);
+        $manifest['dependencies']['lodash'] = '4.17.20';
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        $open = [
+            [1065, 'GHSA-35jh-r3h4-6jhm', 'Prototype pollution in lodash', '<4.17.21'],
+            [1080, 'GHSA-29mw-wpgm-hmr9', 'Command injection in lodash', '<4.17.21'],
+            [1106, 'GHSA-jf85-cpcp-j695', 'Prototype pollution in lodash.set', '*'],
+            [1107, 'GHSA-4xc9-xhrj-v574', 'Command injection in lodash.template', '*'],
+            [1108, 'GHSA-xxjr-mmjv-4gpg', 'Prototype pollution in lodash', '*'],
+        ];
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => (string) file_get_contents($this->repo.'/composer.json'),
+            'package.json' => json_encode($manifest),
+            'package-lock.json' => npmLock(['lodash' => '4.17.20', 'vite-plus' => '0.1.0']),
+            'composer.lock' => composerLock(['livewire/livewire' => '4.2.0']),
+        ]);
+        unset($manifest['dependencies']['lodash']);
+        $manifest['dependencies']['alias'] = 'npm:lodash@4.17.20';
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        file_put_contents($this->repo.'/package-lock.json', npmLock([
+            'alias' => [
+                'name' => 'npm:lodash@4.17.20',
+                'version' => '4.17.20',
+                'resolved' => 'https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz',
+                'integrity' => 'sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA==',
+            ],
+            'vite-plus' => '0.1.0',
+        ]));
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [['data' => ['advisories' => []]]],
+            'vp pm audit --json' => [
+                ['code' => 1, 'data' => npmAliasFinding('lodash', 'alias', $open)],
+                ['code' => 1, 'data' => npmFinding('lodash', $open)],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toContain('| alias | — | 4.17.20 |  |')
+            ->and($result->getOutput())->toContain('| lodash | 4.17.20 | — |  |')
+            ->and($result->getOutput())->not->toContain('security fix', 'GHSA-35jh-r3h4-6jhm', 'including a security fix');
+    });
+
 });
 
 /** @param list<array{0: int, 1: string, 2: string, 3: string}> $advisories */
+function npmAliasFinding(string $installed, string $alias, array $advisories): array
+{
+    $finding = npmFinding($installed, $advisories);
+    $finding['vulnerabilities'][$installed]['nodes'] = ['node_modules/'.$alias];
+    $finding['vulnerabilities'][$installed]['isDirect'] = true;
+
+    return $finding;
+}
+
 function npmFinding(string $name, array $advisories): array
 {
     $via = [];
@@ -706,7 +808,7 @@ function npmLock(array $packages): string
     $locked = ['' => ['name' => 'app']];
     foreach ($packages as $name => $version) {
         $path = str_starts_with($name, 'node_modules/') ? $name : 'node_modules/'.$name;
-        $locked[$path] = ['version' => $version];
+        $locked[$path] = is_array($version) ? $version : ['version' => $version];
     }
 
     return json_encode([
