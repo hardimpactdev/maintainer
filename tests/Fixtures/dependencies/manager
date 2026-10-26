@@ -6,6 +6,21 @@ $key = $name.' '.implode(' ', array_slice($argv, 1));
 $age = getenv('npm_config_min_release_age');
 $suffix = ($age !== false && $age !== '') ? '|min-release-age='.$age : '';
 file_put_contents(getenv('DEPENDENCY_TEST_LOG'), $name.'|'.implode(' ', array_slice($argv, 1)).'|'.getcwd().$suffix."\n", FILE_APPEND);
+$frozen = ($name === 'npm' && ($argv[1] ?? '') === 'ci' && in_array('--ignore-scripts', $argv, true))
+    || ($name === 'bun' && ($argv[1] ?? '') === 'install' && in_array('--frozen-lockfile', $argv, true) && in_array('--ignore-scripts', $argv, true));
+$materialize = function () use ($frozen): void {
+    if (! $frozen) {
+        return;
+    }
+    if (! is_dir('node_modules/.bin') && ! mkdir('node_modules/.bin', 0755, true) && ! is_dir('node_modules/.bin')) {
+        fwrite(STDERR, "Could not create node_modules/.bin\n");
+        exit(1);
+    }
+    if (! is_file('node_modules/.bin/vp')) {
+        copy(__FILE__, 'node_modules/.bin/vp');
+        chmod('node_modules/.bin/vp', 0755);
+    }
+};
 // Composer has no installed inventory in a fresh VM. Fixture responses must
 // not hide the empty, non-JSON output when audit is called without --locked.
 if ($name === 'composer' && $argv[1] === 'audit' && ! is_dir('vendor') && ! in_array('--locked', $argv, true)) {
@@ -23,8 +38,12 @@ if ($fixture) {
     $items = $responses[$key] ?? null;
     if ($items !== null) {
         $response = $items[min($n, count($items) - 1)];
+        $code = $response['code'] ?? 0;
+        if ($code === 0) {
+            $materialize();
+        }
         echo isset($response['raw']) ? $response['raw'] : json_encode($response['data']);
-        exit($response['code'] ?? 0);
+        exit($code);
     }
 }
 // npm 11.12 ignores min-release-age-exclude and still enforces min-release-age.
@@ -75,4 +94,8 @@ if (isset($file)) {
     $data[$section][$package] = $range;
     file_put_contents($file, json_encode($data));
 }
-exit((int) (getenv($name === 'composer' ? 'DEPENDENCY_TEST_COMPOSER_EXIT' : ($name === 'npm' ? 'DEPENDENCY_TEST_NPM_EXIT' : 'DEPENDENCY_TEST_VP_EXIT')) ?: 0));
+$code = (int) (getenv($name === 'composer' ? 'DEPENDENCY_TEST_COMPOSER_EXIT' : ($name === 'npm' ? 'DEPENDENCY_TEST_NPM_EXIT' : 'DEPENDENCY_TEST_VP_EXIT')) ?: 0);
+if ($code === 0) {
+    $materialize();
+}
+exit($code);

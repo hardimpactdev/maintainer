@@ -75,7 +75,7 @@ A repository with one root application can omit `maintainer.json`. The implicit 
 Everything else is detected:
 
 - The JavaScript manager comes from `packageManager` or `devEngines.packageManager` (`npm` or `bun`). A declared manager must have its own lockfile in that side (`package-lock.json` for npm, `bun.lock` for Bun) and must not have the other manager's lockfile. When both fields are absent, `package-lock.json` means npm and `bun.lock` means Bun. None, or both lockfiles, is an error. The command does not add `packageManager`.
-- Vite+ is used when `vite-plus` is a direct dependency. The command is the side's `node_modules/.bin/vp`. A missing or non-executable binary fails before any update. A global `vp` is never used.
+- Vite+ is used when `vite-plus` is a direct dependency. The command is the side's `node_modules/.bin/vp`. When `node_modules` is absent, the command first runs a frozen install that does not change the lockfile: `npm ci --ignore-scripts`, or `bun install --frozen-lockfile --ignore-scripts`. A failed install stops the command. If `node_modules` is present but `vp` is missing or not executable, the command fails and does not install again. A global `vp` is never used.
 - Without Vite+, the declared manager is called directly. An Expo app on plain npm is the usual case.
 - Release age comes from the policy file that is already there. A missing policy is left missing.
 
@@ -122,7 +122,7 @@ An Expo SDK major is one candidate, `package` `expo`, with `"align": "expo-insta
 
 Composer majors come from `composer outdated --locked --major-only`. Composer and npm audits read the lockfile, so a fresh checkout does not need `vendor`. For a `0.x` release, a newer minor counts as a major.
 
-npm `outdated --json` omits `current` when `node_modules` is absent. Detect reads that version from `package-lock.json` at `packages["node_modules/<name>"].version`, or from `bun.lock` when the manager is Bun. It does not install packages in order to detect updates. A direct package that has no current version in either place is an error. Rows that are not direct dependencies are still skipped.
+npm `outdated --json` omits `current` when `node_modules` is absent. Detect reads that version from `package-lock.json` at `packages["node_modules/<name>"].version`, or from `bun.lock` when the manager is Bun. It does not install packages merely to discover the current version. A direct package that has no current version in either place is an error. Rows that are not direct dependencies are still skipped.
 
 npm advisories keep the real `via` id, URL, and severity on the controlling direct dependency. A package name is never used as an id.
 

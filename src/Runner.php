@@ -227,8 +227,25 @@ final class Runner
 
     private function localVp(Side $side): void
     {
+        if (! is_dir($side->dir.'/node_modules')) {
+            $this->installJs($side);
+        }
         if (! is_executable($side->dir.'/node_modules/.bin/vp')) {
             throw new Failure('Missing executable node_modules/.bin/vp; install the repository dependencies first.', 127);
+        }
+    }
+
+    private function installJs(Side $side): void
+    {
+        $js = JsWorkspace::load($side->dir);
+        $this->onPath($js->manager);
+        $command = $js->manager === 'bun'
+            ? ['bun', 'install', '--frozen-lockfile', '--ignore-scripts']
+            : ['npm', 'ci', '--ignore-scripts'];
+        try {
+            (new Process($side->dir))->run($command);
+        } catch (CommandFailed $failed) {
+            throw new Failure('Frozen '.$js->manager.' install failed for side '.$side->name.'.', $failed->exitCode);
         }
     }
 
