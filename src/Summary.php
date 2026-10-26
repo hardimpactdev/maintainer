@@ -403,8 +403,6 @@ final class Summary
     /** @param list<array{path: string, package: string, from: string, to: string, major: bool, advisories: list<array{id: string, url: ?string}>}> $rows */
     private function render(array $rows): string
     {
-        $major = array_any($rows, fn (array $row): bool => $row['major']);
-        $security = array_any($rows, fn (array $row): bool => $row['advisories'] !== []);
         $only = count($rows) === 1 ? $rows[0] : null;
         if ($only !== null && $only['to'] === '—' && $only['from'] !== '—') {
             $title = 'Remove '.$only['package'];
@@ -413,59 +411,63 @@ final class Summary
         } elseif ($only !== null) {
             $title = 'Update '.$only['package'].' to '.$only['to'].($only['advisories'] !== [] ? ' (security fix)' : '');
         } else {
-            $title = 'Update dependencies for '.(new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('F Y');
+            $title = 'Maintenance update for '.(new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('F Y');
         }
-        $what = $this->what($rows, $major, $security);
-        $meaning = $major
-            ? 'This includes a major upgrade. Read the upgrade notes before you deploy.'
-            : 'Nothing changes for users of the app.';
         $paths = array_values(array_unique(array_column($rows, 'path')));
         $showPath = count($paths) > 1 || $paths !== ['.'];
+        $intro = $only === null
+            ? 'This is a routine maintenance update. The packages below were updated to their newest safe versions.'
+            : $this->singleIntro($only);
+        $actions = [];
+        $fixes = [];
         $table = ["| Package | From | To | note |", "| --- | --- | --- | --- |"];
         foreach ($rows as $row) {
-            $package = $showPath && $row['path'] !== '.' ? $row['package'].' ('.$row['path'].')' : $row['package'];
-            $table[] = '| '.$this->cell($package).' | '.$this->cell($row['from']).' | '.$this->cell($row['to']).' | '.$this->cell($this->note($row)).' |';
+            $name = $showPath && $row['path'] !== '.' ? $row['package'].' ('.$row['path'].')' : $row['package'];
+            if ($row['major']) {
+                $actions[] = $name.' '.$row['from'].' → '.$row['to'].' is a major update. Check its upgrade notes before you deploy.';
+            }
+            if ($row['advisories'] !== []) {
+                $fixes[] = $name.': '.$this->advisoryLinks($row);
+            }
+            $table[] = '| '.$this->cell($name).' | '.$this->cell($row['from']).' | '.$this->cell($row['to']).' | '.$this->cell($this->note($row)).' |';
         }
+        $parts = [$title, $intro];
+        if ($actions !== []) {
+            $parts[] = "Action needed\n\n".implode("\n", $actions);
+        }
+        if ($fixes !== []) {
+            $parts[] = "Security fixes\n\n".implode("\n", $fixes);
+        }
+        $parts[] = implode("\n", $table);
 
-        return $title."\n\n".$what."\n\n".$meaning."\n\n".implode("\n", $table)."\n\nTested: compared the lockfiles with the base commit.\n";
+        return implode("\n\n", $parts)."\n";
     }
 
-    /** @param list<array{path: string, package: string, from: string, to: string, major: bool, advisories: list<array{id: string, url: ?string}>}> $rows */
-    private function what(array $rows, bool $major, bool $security): string
+    /** @param array{package: string, from: string, to: string} $row */
+    private function singleIntro(array $row): string
     {
-        if (count($rows) === 1) {
-            $row = $rows[0];
-            if ($row['to'] === '—' && $row['from'] !== '—') {
-                return 'Removed '.$row['package'].' '.$row['from'].'.';
-            }
-            if ($row['from'] === '—' && $row['to'] !== '—') {
-                return 'Added '.$row['package'].' '.$row['to'].'.';
-            }
-            if ($row['from'] === $row['to'] && $row['advisories'] !== []) {
-                return 'Updated '.$row['package'].' to fix a security advisory.';
-            }
-            $sentence = 'Updated '.$row['package'].' from '.$row['from'].' to '.$row['to'];
-            if ($row['advisories'] !== []) {
-                return $sentence.' to fix a security advisory.';
-            }
+        if ($row['to'] === '—' && $row['from'] !== '—') {
+            return 'This removes '.$row['package'].' '.$row['from'].'.';
+        }
+        if ($row['from'] === '—' && $row['to'] !== '—') {
+            return 'This adds '.$row['package'].' '.$row['to'].'.';
+        }
+        if ($row['from'] === $row['to']) {
+            return 'This updates '.$row['package'].' to '.$row['to'].'.';
+        }
 
-            return $sentence.'.';
-        }
-        $paths = array_values(array_unique(array_column($rows, 'path')));
-        $where = '';
-        if ($paths !== ['.']) {
-            $where = ' in '.implode(' and ', array_map(fn (string $path): string => '`'.$path.'`', $paths));
-        }
-        $extra = [];
-        if ($security) {
-            $extra[] = 'a security fix';
-        }
-        if ($major) {
-            $extra[] = 'a major upgrade';
-        }
-        $including = $extra === [] ? '' : ', including '.implode(' and ', $extra);
+        return 'This updates '.$row['package'].' from '.$row['from'].' to '.$row['to'].'.';
+    }
 
-        return 'Updated '.count($rows).' packages'.$where.$including.'.';
+    /** @param array{advisories: list<array{id: string, url: ?string}>} $row */
+    private function advisoryLinks(array $row): string
+    {
+        $links = [];
+        foreach ($row['advisories'] as $advisory) {
+            $links[] = $advisory['url'] === null ? $advisory['id'] : '['.$advisory['id'].']('.$advisory['url'].')';
+        }
+
+        return implode(', ', $links);
     }
 
     /** @param array{major: bool, advisories: list<array{id: string, url: ?string}>} $row */
@@ -476,11 +478,7 @@ final class Summary
             $parts[] = 'major';
         }
         if ($row['advisories'] !== []) {
-            $links = [];
-            foreach ($row['advisories'] as $advisory) {
-                $links[] = $advisory['url'] === null ? $advisory['id'] : '['.$advisory['id'].']('.$advisory['url'].')';
-            }
-            $parts[] = 'security fix '.implode(', ', $links);
+            $parts[] = 'security fix '.$this->advisoryLinks($row);
         }
 
         return implode('; ', $parts);

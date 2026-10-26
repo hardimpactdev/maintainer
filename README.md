@@ -72,18 +72,24 @@ One changed package:
 ```text
 Update livewire/livewire to 4.5.0 (security fix)
 
-Updated livewire/livewire from 4.2.0 to 4.5.0 to fix a security advisory.
+This updates livewire/livewire from 4.2.0 to 4.5.0.
 
-Nothing changes for users of the app.
+Security fixes
+
+livewire/livewire: [PKSA-xhv3-nr94-h8db](https://packagist.org/security-advisories/PKSA-xhv3-nr94-h8db)
 
 | Package | From | To | note |
 | --- | --- | --- | --- |
 | livewire/livewire | 4.2.0 | 4.5.0 | security fix [PKSA-xhv3-nr94-h8db](https://packagist.org/security-advisories/PKSA-xhv3-nr94-h8db) |
-
-Tested: compared the lockfiles with the base commit.
 ```
 
-Several packages use `Update dependencies for October 2026`, with the month in UTC. A major upgrade, including a newer minor of a `0.x` release, tells the reader to read the upgrade notes. Otherwise the text says nothing changes for users of the app.
+Several packages use the title `Maintenance update for October 2026`. The month is UTC. The first sentence is always `This is a routine maintenance update. The packages below were updated to their newest safe versions.`
+
+A major upgrade, including a newer minor of a `0.x` release, adds an `Action needed` section. Each line names that package, for example `laravel/framework 13.38.0 → 14.0.0 is a major update. Check its upgrade notes before you deploy.` The section is left out when there is no major update.
+
+A cleared advisory adds a `Security fixes` section. Each line names the package and links the advisory id. An id with no `https` URL stays plain text. The section is left out when the update clears nothing.
+
+One package keeps `Update <name> to <version>`, and adds ` (security fix)` when that update clears an advisory. The sentence under the title says what happened: `This updates livewire/livewire from 4.2.0 to 4.5.0.` A removal is `Remove <name>` and `This removes <name> <version>.` An addition is `Add <name> <version>` and `This adds <name> <version>.` There is no `Tested` line. When the package is not in the repository root, the table and those two sections name it as `expo (mobile)`.
 
 The table lists each direct dependency whose locked version changed, including one that was removed. A security fix is an advisory that the update clears. An advisory that still applies to the new version is not a fix. Stopping a direct declaration is not a security fix when that package stays installed and the advisory is still reported. A Composer lock with no packages left still lists the removals. A JavaScript advisory that `detect` attaches to a direct dependency is listed on that direct dependency, including when only a nested copy in the lockfile changed. An npm or Bun alias is listed under the name in `package.json`, not the package it installs. The advisory id is a link when the audit has an `https` URL. Audits are the same locked Composer and JavaScript audits as `detect`, read for the base commit and the working tree. A package name is never an advisory id.
 

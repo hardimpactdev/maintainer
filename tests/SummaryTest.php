@@ -26,15 +26,14 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
-                'Update dependencies for '.gmdate('F Y'),
-                'Updated 2 packages.',
-                'Nothing changes for users of the app.',
+                'Maintenance update for '.gmdate('F Y'),
+                'This is a routine maintenance update. The packages below were updated to their newest safe versions.',
                 [
                     ['livewire/livewire', '4.2.0', '4.2.1', ''],
                     ['react', '19.0.0', '19.1.0', ''],
                 ],
             ))
-            ->and($result->getOutput())->not->toContain('polyfill', 'loose-envify', 'Swamp', '{')
+            ->and($result->getOutput())->not->toContain('polyfill', 'loose-envify', 'Swamp', '{', 'Tested:', 'Action needed', 'Security fixes')
             ->and($result->getErrorOutput())->toBe('')
             ->and(commandLog($this->directory))->toContain('composer|audit --locked --format=json|', 'vp|pm audit --json|');
     });
@@ -51,9 +50,36 @@ describe('summary', function () {
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
                 'Update other/pkg to 2.0.0',
-                'Updated other/pkg from 1.2.3 to 2.0.0.',
-                'This includes a major upgrade. Read the upgrade notes before you deploy.',
+                'This updates other/pkg from 1.2.3 to 2.0.0.',
                 [['other/pkg', '1.2.3', '2.0.0', 'major']],
+                ['other/pkg 1.2.3 → 2.0.0 is a major update. Check its upgrade notes before you deploy.'],
+            ))
+            ->and($result->getOutput())->not->toContain('Tested:', 'Security fixes');
+    });
+
+    it('keeps a routine title when one of several updates is major', function () {
+        $composer = json_decode((string) file_get_contents($this->repo.'/composer.json'), true);
+        $composer['require']['laravel/framework'] = '^13.38';
+        $encoded = json_encode($composer);
+        file_put_contents($this->repo.'/composer.json', $encoded);
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => $encoded,
+            'composer.lock' => composerLock(['laravel/framework' => '13.38.0', 'livewire/livewire' => '4.2.0']),
+            'package-lock.json' => npmLock(['react' => '19.0.0']),
+        ]);
+        file_put_contents($this->repo.'/composer.lock', composerLock(['laravel/framework' => '14.0.0', 'livewire/livewire' => '4.2.1']));
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], emptyAudits(false));
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toBe(summaryText(
+                'Maintenance update for '.gmdate('F Y'),
+                'This is a routine maintenance update. The packages below were updated to their newest safe versions.',
+                [
+                    ['laravel/framework', '13.38.0', '14.0.0', 'major'],
+                    ['livewire/livewire', '4.2.0', '4.2.1', ''],
+                ],
+                ['laravel/framework 13.38.0 → 14.0.0 is a major update. Check its upgrade notes before you deploy.'],
             ));
     });
 
@@ -74,9 +100,9 @@ describe('summary', function () {
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
                 'Update @scope/tool to 0.5.0',
-                'Updated @scope/tool from 0.4.0 to 0.5.0.',
-                'This includes a major upgrade. Read the upgrade notes before you deploy.',
+                'This updates @scope/tool from 0.4.0 to 0.5.0.',
                 [['@scope/tool', '0.4.0', '0.5.0', 'major']],
+                ['@scope/tool 0.4.0 → 0.5.0 is a major update. Check its upgrade notes before you deploy.'],
             ))
             ->and(commandLog($this->directory))->toContain('vp|pm audit --json|');
     });
@@ -98,15 +124,17 @@ describe('summary', function () {
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
                 'Update livewire/livewire to 4.5.0 (security fix)',
-                'Updated livewire/livewire from 4.2.0 to 4.5.0 to fix a security advisory.',
-                'Nothing changes for users of the app.',
+                'This updates livewire/livewire from 4.2.0 to 4.5.0.',
                 [[
                     'livewire/livewire',
                     '4.2.0',
                     '4.5.0',
                     'security fix [PKSA-bgw4-5zmg-2njg](https://packagist.org/security-advisories/PKSA-bgw4-5zmg-2njg), [PKSA-xhv3-nr94-h8db](https://packagist.org/security-advisories/PKSA-xhv3-nr94-h8db)',
                 ]],
+                [],
+                ['livewire/livewire: [PKSA-bgw4-5zmg-2njg](https://packagist.org/security-advisories/PKSA-bgw4-5zmg-2njg), [PKSA-xhv3-nr94-h8db](https://packagist.org/security-advisories/PKSA-xhv3-nr94-h8db)'],
             ))
+            ->and($result->getOutput())->not->toContain('Tested:', 'Action needed')
             ->and($result->getOutput())->not->toContain('{', 'Swamp');
     });
 
@@ -135,9 +163,8 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
-                'Update dependencies for '.gmdate('F Y'),
-                'Updated 2 packages in `.` and `mobile`.',
-                'Nothing changes for users of the app.',
+                'Maintenance update for '.gmdate('F Y'),
+                'This is a routine maintenance update. The packages below were updated to their newest safe versions.',
                 [
                     ['other/pkg', '1.0.0', '1.1.0', ''],
                     ['expo (mobile)', '51.0.0', '51.0.1', ''],
@@ -208,8 +235,7 @@ describe('summary', function () {
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
                 'Update lodash to 4.17.20',
-                'Updated lodash from 4.17.19 to 4.17.20.',
-                'Nothing changes for users of the app.',
+                'This updates lodash from 4.17.19 to 4.17.20.',
                 [['lodash', '4.17.19', '4.17.20', '']],
             ))
             ->and($result->getOutput())->not->toContain('security fix', 'GHSA-35jh-r3h4-6jhm', 'GHSA-29mw-wpgm-hmr9');
@@ -262,9 +288,8 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
-                'Update dependencies for '.gmdate('F Y'),
-                'Updated 2 packages.',
-                'Nothing changes for users of the app.',
+                'Maintenance update for '.gmdate('F Y'),
+                'This is a routine maintenance update. The packages below were updated to their newest safe versions.',
                 [
                     ['other/pkg', '1.0.0', '—', ''],
                     ['react', '19.0.0', '—', ''],
@@ -305,8 +330,10 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toContain('Update express to 4.18.2 (security fix)')
+            ->and($result->getOutput())->toContain('This updates express to 4.18.2.')
+            ->and($result->getOutput())->toContain("Security fixes\n\nexpress: [1090](https://github.com/advisories/GHSA-hrpp-h998-j3pp), [1091](https://github.com/advisories/GHSA-6rw7-vpxm-498p), [1092](https://github.com/advisories/GHSA-qqgx-2p2h-9c37)")
             ->and($result->getOutput())->toContain('| express | 4.18.2 | 4.18.2 | security fix [1090](https://github.com/advisories/GHSA-hrpp-h998-j3pp), [1091](https://github.com/advisories/GHSA-6rw7-vpxm-498p), [1092](https://github.com/advisories/GHSA-qqgx-2p2h-9c37) |')
-            ->and($result->getOutput())->not->toContain('| qs |');
+            ->and($result->getOutput())->not->toContain('| qs |', 'Tested:', 'Action needed');
     });
 
     it('keeps a nested npm copy that changes under an unchanged direct dependency', function () {
@@ -339,9 +366,12 @@ describe('summary', function () {
         ]);
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toContain('Maintenance update for '.gmdate('F Y'))
+            ->and($result->getOutput())->toContain('This is a routine maintenance update. The packages below were updated to their newest safe versions.')
+            ->and($result->getOutput())->toContain("Security fixes\n\nexpress: [1090](https://github.com/advisories/GHSA-hrpp-h998-j3pp)\nqs: [1090](https://github.com/advisories/GHSA-hrpp-h998-j3pp)")
             ->and($result->getOutput())->toContain('| express | 4.18.2 | 4.18.2 | security fix [1090](https://github.com/advisories/GHSA-hrpp-h998-j3pp) |')
             ->and($result->getOutput())->toContain('| qs | 6.16.1 | 6.16.1 | security fix [1090](https://github.com/advisories/GHSA-hrpp-h998-j3pp) |')
-            ->and($result->getOutput())->toContain('including a security fix');
+            ->and($result->getOutput())->not->toContain('Tested:', 'Action needed', 'including a security fix');
     });
 
     it('attributes a nested bun advisory to the direct package that pulls it in', function () {
@@ -383,8 +413,10 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toContain('Update is-odd to 3.0.1 (security fix)')
+            ->and($result->getOutput())->toContain('This updates is-odd to 3.0.1.')
+            ->and($result->getOutput())->toContain("Security fixes\n\nis-odd: [4242](https://github.com/advisories/GHSA-is-number)")
             ->and($result->getOutput())->toContain('| is-odd | 3.0.1 | 3.0.1 | security fix [4242](https://github.com/advisories/GHSA-is-number) |')
-            ->and($result->getOutput())->not->toContain('| is-number |');
+            ->and($result->getOutput())->not->toContain('| is-number |', 'Tested:');
     });
 
     it('does not call a removed direct dependency a security fix while it stays installed', function () {
@@ -421,8 +453,7 @@ describe('summary', function () {
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
                 'Remove qs',
-                'Removed qs 6.11.0.',
-                'Nothing changes for users of the app.',
+                'This removes qs 6.11.0.',
                 [['qs', '6.11.0', '—', '']],
             ))
             ->and($result->getOutput())->not->toContain('security fix', 'GHSA-w7fw-mjwx-w883', 'GHSA-6rw7-vpxm-498p', 'GHSA-4mjr-xmp4-gh2g');
@@ -452,9 +483,8 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
-                'Update dependencies for '.gmdate('F Y'),
-                'Updated 2 packages.',
-                'Nothing changes for users of the app.',
+                'Maintenance update for '.gmdate('F Y'),
+                'This is a routine maintenance update. The packages below were updated to their newest safe versions.',
                 [
                     ['psr/container', '2.0.2', '—', ''],
                     ['psr/log', '3.0.1', '—', ''],
@@ -491,9 +521,8 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
-                'Update dependencies for '.gmdate('F Y'),
-                'Updated 2 packages in `server`.',
-                'Nothing changes for users of the app.',
+                'Maintenance update for '.gmdate('F Y'),
+                'This is a routine maintenance update. The packages below were updated to their newest safe versions.',
                 [
                     ['psr/container (server)', '2.0.2', '—', ''],
                     ['psr/log (server)', '3.0.1', '—', ''],
@@ -564,6 +593,8 @@ describe('summary', function () {
 
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toContain('Update alias to 4.17.21 (security fix)')
+            ->and($result->getOutput())->toContain('This updates alias from 4.17.20 to 4.17.21.')
+            ->and($result->getOutput())->toContain("Security fixes\n\nalias: [1065](https://github.com/advisories/GHSA-35jh-r3h4-6jhm)")
             ->and($result->getOutput())->toContain('| alias | 4.17.20 | 4.17.21 | security fix [1065](https://github.com/advisories/GHSA-35jh-r3h4-6jhm) |')
             ->and($result->getErrorOutput())->not->toContain('Cannot attach bun advisory', 'lodash');
     });
@@ -606,14 +637,15 @@ describe('summary', function () {
         expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
             ->and($result->getOutput())->toBe(summaryText(
                 'Update alias to 4.17.21 (security fix)',
-                'Updated alias from 4.17.20 to 4.17.21 to fix a security advisory.',
-                'Nothing changes for users of the app.',
+                'This updates alias from 4.17.20 to 4.17.21.',
                 [[
                     'alias',
                     '4.17.20',
                     '4.17.21',
                     'security fix [1065](https://github.com/advisories/GHSA-35jh-r3h4-6jhm), [1080](https://github.com/advisories/GHSA-29mw-wpgm-hmr9)',
                 ]],
+                [],
+                ['alias: [1065](https://github.com/advisories/GHSA-35jh-r3h4-6jhm), [1080](https://github.com/advisories/GHSA-29mw-wpgm-hmr9)'],
             ));
     });
 
@@ -853,13 +885,25 @@ function emptyAudits(bool $js = true): array
     return $fixture;
 }
 
-/** @param list<array{0: string, 1: string, 2: string, 3: string}> $rows */
-function summaryText(string $title, string $what, string $meaning, array $rows): string
+/**
+ * @param list<array{0: string, 1: string, 2: string, 3: string}> $rows
+ * @param list<string> $actions
+ * @param list<string> $security
+ */
+function summaryText(string $title, string $intro, array $rows, array $actions = [], array $security = []): string
 {
+    $parts = [$title, $intro];
+    if ($actions !== []) {
+        $parts[] = "Action needed\n\n".implode("\n", $actions);
+    }
+    if ($security !== []) {
+        $parts[] = "Security fixes\n\n".implode("\n", $security);
+    }
     $table = ["| Package | From | To | note |", "| --- | --- | --- | --- |"];
     foreach ($rows as [$package, $from, $to, $note]) {
         $table[] = "| {$package} | {$from} | {$to} | {$note} |";
     }
+    $parts[] = implode("\n", $table);
 
-    return $title."\n\n".$what."\n\n".$meaning."\n\n".implode("\n", $table)."\n\nTested: compared the lockfiles with the base commit.\n";
+    return implode("\n\n", $parts)."\n";
 }
