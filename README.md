@@ -74,7 +74,7 @@ A repository with one root application can omit `maintainer.json`. The implicit 
 
 Everything else is detected:
 
-- The JavaScript manager comes from `packageManager` (`npm@…` or `bun@…`).
+- The JavaScript manager comes from `packageManager` or `devEngines.packageManager` (`npm` or `bun`). When both are absent, `package-lock.json` means npm and `bun.lock` means Bun. None, or both lockfiles, is an error. The command does not add `packageManager`.
 - Vite+ is used when `vite-plus` is a direct dependency. The command is the side's `node_modules/.bin/vp`. A missing or non-executable binary fails before any update. A global `vp` is never used.
 - Without Vite+, the declared manager is called directly. An Expo app on plain npm is the usual case.
 - Release age comes from the policy file that is already there. A missing policy is left missing.

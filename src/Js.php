@@ -18,14 +18,7 @@ final class JsWorkspace
     public static function load(string $dir): self
     {
         $manifest = self::read($dir.'/package.json');
-        $declared = $manifest['packageManager'] ?? '';
-        if (is_string($declared) && str_starts_with($declared, 'npm@')) {
-            $manager = 'npm';
-        } elseif (is_string($declared) && str_starts_with($declared, 'bun@')) {
-            $manager = 'bun';
-        } else {
-            throw new Failure('package.json packageManager must declare npm@ or bun@', 70);
-        }
+        $manager = self::manager($dir, $manifest);
         $direct = array_replace(
             is_array($manifest['dependencies'] ?? null) ? $manifest['dependencies'] : [],
             is_array($manifest['devDependencies'] ?? null) ? $manifest['devDependencies'] : [],
@@ -33,6 +26,61 @@ final class JsWorkspace
         );
 
         return new self($dir, $manager, array_key_exists('vite-plus', $direct), $direct, array_key_exists('expo', $direct));
+    }
+
+
+    private static function manager(string $dir, array $manifest): string
+    {
+        $declared = self::declaredManager($manifest);
+        if ($declared !== null) {
+            return $declared;
+        }
+        $npm = is_file($dir.'/package-lock.json');
+        $bun = is_file($dir.'/bun.lock');
+        if ($npm && $bun) {
+            throw new Failure('package-lock.json and bun.lock disagree. Declare packageManager or keep one lockfile.', 70);
+        }
+        if ($npm) {
+            return 'npm';
+        }
+        if ($bun) {
+            return 'bun';
+        }
+        throw new Failure('Cannot tell whether this side uses npm or Bun. Declare packageManager or add package-lock.json or bun.lock.', 70);
+    }
+
+    /** @param array<mixed> $manifest */
+    private static function declaredManager(array $manifest): ?string
+    {
+        $fromPackageManager = self::managerName($manifest['packageManager'] ?? null, 'packageManager');
+        $fromDevEngines = null;
+        $devEngines = $manifest['devEngines'] ?? null;
+        if (is_array($devEngines) && array_key_exists('packageManager', $devEngines)) {
+            $engine = $devEngines['packageManager'];
+            $fromDevEngines = self::managerName(
+                is_array($engine) ? ($engine['name'] ?? null) : $engine,
+                'devEngines.packageManager',
+            );
+        }
+        if ($fromPackageManager !== null && $fromDevEngines !== null && $fromPackageManager !== $fromDevEngines) {
+            throw new Failure('packageManager and devEngines name different JavaScript managers', 70);
+        }
+
+        return $fromPackageManager ?? $fromDevEngines;
+    }
+
+    private static function managerName(mixed $value, string $label): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value) && ($value === 'npm' || str_starts_with($value, 'npm@'))) {
+            return 'npm';
+        }
+        if (is_string($value) && ($value === 'bun' || str_starts_with($value, 'bun@'))) {
+            return 'bun';
+        }
+        throw new Failure('package.json '.$label.' must declare npm or bun', 70);
     }
 
     /** @return list<string> */

@@ -12,6 +12,8 @@ beforeEach(function () {
     ]));
     mkdir($this->repo.'/mobile/node_modules/.bin', 0755, true);
     file_put_contents($this->repo.'/mobile/package.json', json_encode([
+        'name' => 'mobile',
+        'private' => true,
         'dependencies' => [
             'expo' => '57.0.28',
             'react' => '19.0.0',
@@ -19,7 +21,12 @@ beforeEach(function () {
             'expo-camera' => '57.0.6',
             'lodash' => '^4.17.21',
         ],
-        'packageManager' => 'npm@11.12.0',
+    ]));
+    file_put_contents($this->repo.'/mobile/package-lock.json', json_encode([
+        'name' => 'mobile',
+        'lockfileVersion' => 3,
+        'requires' => true,
+        'packages' => ['' => ['name' => 'mobile']],
     ]));
     file_put_contents($this->repo.'/mobile/.npmrc', "min-release-age=7\n");
 });
@@ -151,5 +158,31 @@ it('requires a side when several sides contain the same manager', function () {
     $result = runMaintainer($this->directory, $this->repo, ['package', 'js', 'lodash', '5.0.0', 'major']);
     expect($result->getExitCode())->toBe(64)
         ->and($result->getErrorOutput())->toContain('Several sides have js')
+        ->and(is_file($this->directory.'/commands'))->toBeFalse();
+});
+
+it('reads an Expo side with no packageManager when package-lock.json is present', function () {
+    $manifest = json_decode((string) file_get_contents($this->repo.'/mobile/package.json'), true);
+    expect($manifest)->not->toHaveKey('packageManager')
+        ->and($manifest)->not->toHaveKey('devEngines')
+        ->and(is_file($this->repo.'/mobile/package-lock.json'))->toBeTrue();
+    $result = runMaintainer($this->directory, $this->repo, ['routine', 'mobile']);
+    expect($result->getExitCode())->toBe(0, $result->getErrorOutput())
+        ->and(commandLog($this->directory))->toBe('npm|update|'.$this->repo.'/mobile'."\n");
+});
+
+it('refuses a JavaScript side with no packageManager and no lockfile', function () {
+    unlink($this->repo.'/mobile/package-lock.json');
+    $result = runMaintainer($this->directory, $this->repo, ['detect', 'mobile']);
+    expect($result->getExitCode())->toBe(70)
+        ->and($result->getErrorOutput())->toContain('Cannot tell whether this side uses npm or Bun')
+        ->and(is_file($this->directory.'/commands'))->toBeFalse();
+});
+
+it('refuses a JavaScript side whose lockfiles disagree', function () {
+    file_put_contents($this->repo.'/mobile/bun.lock', "{}\n");
+    $result = runMaintainer($this->directory, $this->repo, ['package', 'mobile', 'js', 'expo', '58.0.0', 'major']);
+    expect($result->getExitCode())->toBe(70)
+        ->and($result->getErrorOutput())->toContain('package-lock.json and bun.lock disagree')
         ->and(is_file($this->directory.'/commands'))->toBeFalse();
 });
