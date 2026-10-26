@@ -27,72 +27,85 @@ final class Summary
     }
 
     /** @return list<array{path: string, package: string, from: string, to: string, major: bool, advisories: list<array{id: string, url: ?string}>}> */
+    /** @return list<array{path: string, package: string, from: string, to: string, major: bool, advisories: list<array{id: string, url: ?string}>}> */
     private function rowsFor(string $root, AppPath $place, string $base): array
     {
-        $changes = [];
-        $direct = [];
+        $rows = [];
         if ($place->composer) {
-            $direct['composer'] = $this->composerDirect($place->dir.'/composer.json');
-            $before = $this->versions($place, 'composer', $this->show($root, $place, $base, 'composer.lock'));
-            $after = $this->versions($place, 'composer', $this->readLock($place->dir.'/composer.lock'));
-            $changes['composer'] = $this->diff($before, $after);
+            $rows = array_merge($rows, $this->managerRows($root, $place, $base, 'composer', 'composer.json', 'composer.lock'));
         }
         if ($place->js) {
-            $js = JsWorkspace::load($place->dir);
-            $direct['js'] = $js->direct;
-            $lock = $js->manager === 'bun' ? 'bun.lock' : 'package-lock.json';
-            $before = $this->versions($place, 'js', $this->show($root, $place, $base, $lock));
-            $after = $this->versions($place, 'js', $this->readLock($place->dir.'/'.$lock));
-            $changes['js'] = $this->diff($before, $after);
-        }
-        $advisories = [];
-        foreach ($changes as $manager => $diff) {
-            if ($diff === []) {
-                continue;
-            }
-            $advisories[$manager] = $this->advisories($root, $place, $manager, $base);
-        }
-        $rows = [];
-        foreach ($changes as $manager => $diff) {
-            foreach ($diff as $package => $range) {
-                $found = $advisories[$manager][$package] ?? [];
-                $isDirect = array_key_exists($package, $direct[$manager] ?? []);
-                if (! $isDirect && $found === []) {
-                    continue;
-                }
-                $from = $range[0];
-                $to = $range[1];
-                $rows[] = [
-                    'path' => $place->path,
-                    'package' => $package,
-                    'from' => $from ?? '—',
-                    'to' => $to ?? '—',
-                    'major' => $from !== null && $to !== null && JsReports::majorChange($from, $to),
-                    'advisories' => $found,
-                ];
-            }
+            $lock = JsWorkspace::load($place->dir)->manager === 'bun' ? 'bun.lock' : 'package-lock.json';
+            $rows = array_merge($rows, $this->managerRows($root, $place, $base, 'js', 'package.json', $lock));
         }
         usort($rows, fn (array $left, array $right): int => [$left['path'], $left['package']] <=> [$right['path'], $right['package']]);
 
         return $rows;
     }
 
+    /** @return list<array{path: string, package: string, from: string, to: string, major: bool, advisories: list<array{id: string, url: ?string}>}> */
+    private function managerRows(string $root, AppPath $place, string $base, string $manager, string $manifestName, string $lockName): array
+    {
+        $currentManifest = $this->readLock($place->dir.'/'.$manifestName);
+        $baseManifest = $this->show($root, $place, $base, $manifestName) ?? $currentManifest;
+        $directBefore = $this->directNames($manager, $baseManifest);
+        $directAfter = $this->directNames($manager, $currentManifest);
+        $before = $this->lockView($place, $manager, $this->show($root, $place, $base, $lockName));
+        $after = $this->lockView($place, $manager, $this->readLock($place->dir.'/'.$lockName));
+        $changed = $directBefore != $directAfter || $before['instances'] != $after['instances'];
+        $cleared = $changed ? $this->clearedAdvisories($root, $place, $manager, $base, $lockName, $baseManifest) : [];
+        $names = array_unique([...array_keys($directBefore), ...array_keys($directAfter), ...array_keys($cleared)]);
+        sort($names, SORT_STRING);
+        $rows = [];
+        foreach ($names as $package) {
+            $was = array_key_exists($package, $directBefore);
+            $is = array_key_exists($package, $directAfter);
+            $found = $cleared[$package] ?? [];
+            if (! $was && ! $is && $found === []) {
+                continue;
+            }
+            if ($was && ! $is) {
+                $from = $before['versions'][$package] ?? null;
+                $to = null;
+            } elseif (! $was && $is) {
+                $from = null;
+                $to = $after['versions'][$package] ?? null;
+            } else {
+                $from = $before['versions'][$package] ?? null;
+                $to = $after['versions'][$package] ?? null;
+            }
+            if ($from === $to && $found === []) {
+                continue;
+            }
+            if ($from === null && $to === null && $found === []) {
+                continue;
+            }
+            $rows[] = [
+                'path' => $place->path,
+                'package' => $package,
+                'from' => $from ?? '—',
+                'to' => $to ?? '—',
+                'major' => $from !== null && $to !== null && JsReports::majorChange($from, $to),
+                'advisories' => $found,
+            ];
+        }
+
+        return $rows;
+    }
+
     /** @return array<string, list<array{id: string, url: ?string}>> */
-    private function advisories(string $root, AppPath $place, string $manager, string $base): array
+    private function clearedAdvisories(string $root, AppPath $place, string $manager, string $base, string $lockName, ?string $baseManifest): array
     {
         $this->runner->prepare($place);
         $current = $this->runner->advisories($place, $manager)[$manager] ?? [];
-        $lock = $manager === 'composer'
-            ? 'composer.lock'
-            : (JsWorkspace::load($place->dir)->manager === 'bun' ? 'bun.lock' : 'package-lock.json');
-        $baseText = $this->show($root, $place, $base, $lock);
-        $previous = $baseText === null ? [] : $this->auditBase($place, $manager, $baseText)[$manager] ?? [];
+        $baseText = $this->show($root, $place, $base, $lockName);
+        $previous = $baseText === null ? [] : $this->auditBase($place, $manager, $baseText, $baseManifest)[$manager] ?? [];
 
-        return $this->merge($current, $previous);
+        return $this->onlyCleared($current, $previous);
     }
 
     /** @return array{composer?: array<string, list<array<string, mixed>>>, js?: array<string, list<array<string, mixed>>>} */
-    private function auditBase(AppPath $place, string $manager, string $lock): array
+    private function auditBase(AppPath $place, string $manager, string $lock, ?string $manifest): array
     {
         $dir = sys_get_temp_dir().'/maintainer-base-'.bin2hex(random_bytes(4));
         if (! mkdir($dir, 0755) && ! is_dir($dir)) {
@@ -101,13 +114,13 @@ final class Summary
         try {
             $composer = $manager === 'composer';
             if ($composer) {
-                $this->copy($place->dir.'/composer.json', $dir.'/composer.json');
+                $this->writeManifest($place->dir.'/composer.json', $dir.'/composer.json', $manifest);
                 file_put_contents($dir.'/composer.lock', $lock);
             } else {
-                $js = JsWorkspace::load($place->dir);
-                $this->copy($place->dir.'/package.json', $dir.'/package.json');
-                $name = $js->manager === 'bun' ? 'bun.lock' : 'package-lock.json';
+                $name = JsWorkspace::load($place->dir)->manager === 'bun' ? 'bun.lock' : 'package-lock.json';
+                $this->writeManifest($place->dir.'/package.json', $dir.'/package.json', $manifest);
                 file_put_contents($dir.'/'.$name, $lock);
+                $js = JsWorkspace::load($dir);
                 if ($js->vitePlus) {
                     $vp = $place->dir.'/node_modules/.bin/vp';
                     if (! is_executable($vp)) {
@@ -129,32 +142,44 @@ final class Summary
     }
 
     /**
-     * @param array<string, list<array<string, mixed>>> $left
-     * @param array<string, list<array<string, mixed>>> $right
+     * @param array<string, list<array<string, mixed>>> $current
+     * @param array<string, list<array<string, mixed>>> $previous
      * @return array<string, list<array{id: string, url: ?string}>>
      */
-    private function merge(array $left, array $right): array
+    private function onlyCleared(array $current, array $previous): array
     {
-        $byPackage = [];
-        foreach ([$left, $right] as $set) {
-            foreach ($set as $name => $advisories) {
-                if (! is_string($name) || ! is_array($advisories)) {
-                    continue;
-                }
-                foreach ($advisories as $advisory) {
-                    if (! is_array($advisory) || ! is_string($advisory['id'] ?? null) || $advisory['id'] === '') {
-                        continue;
-                    }
-                    $url = $advisory['url'] ?? null;
-                    $byPackage[$name][$advisory['id']] = [
-                        'id' => $advisory['id'],
-                        'url' => is_string($url) && str_starts_with($url, 'https://') ? $url : null,
-                    ];
+        $present = [];
+        foreach ($current as $name => $advisories) {
+            if (! is_string($name) || ! is_array($advisories)) {
+                continue;
+            }
+            foreach ($advisories as $advisory) {
+                if (is_array($advisory) && is_string($advisory['id'] ?? null) && $advisory['id'] !== '') {
+                    $present[$name][$advisory['id']] = true;
                 }
             }
         }
+        $cleared = [];
+        foreach ($previous as $name => $advisories) {
+            if (! is_string($name) || ! is_array($advisories)) {
+                continue;
+            }
+            foreach ($advisories as $advisory) {
+                if (! is_array($advisory) || ! is_string($advisory['id'] ?? null) || $advisory['id'] === '') {
+                    continue;
+                }
+                if (isset($present[$name][$advisory['id']])) {
+                    continue;
+                }
+                $url = $advisory['url'] ?? null;
+                $cleared[$name][$advisory['id']] = [
+                    'id' => $advisory['id'],
+                    'url' => is_string($url) && str_starts_with($url, 'https://') ? $url : null,
+                ];
+            }
+        }
         $merged = [];
-        foreach ($byPackage as $name => $advisories) {
+        foreach ($cleared as $name => $advisories) {
             ksort($advisories, SORT_STRING);
             $merged[$name] = array_values($advisories);
         }
@@ -163,18 +188,20 @@ final class Summary
         return $merged;
     }
 
-    /** @return array<string, string> */
-    private function versions(AppPath $place, string $manager, ?string $text): array
+    /** @return array{versions: array<string, string>, instances: array<string, string>} */
+    private function lockView(AppPath $place, string $manager, ?string $text): array
     {
         if ($text === null) {
-            return [];
+            return ['versions' => [], 'instances' => []];
         }
         if ($manager === 'composer') {
-            return $this->composerVersions($text);
+            $versions = $this->composerVersions($text);
+
+            return ['versions' => $versions, 'instances' => $versions];
         }
         $js = JsWorkspace::load($place->dir);
 
-        return $js->manager === 'bun' ? $this->bunVersions($text) : $this->npmVersions($text);
+        return $js->manager === 'bun' ? $this->bunView($text) : $this->npmView($text);
     }
 
     /** @return array<string, string> */
@@ -200,37 +227,37 @@ final class Summary
         return $versions;
     }
 
-    /** @return array<string, string> */
-    private function npmVersions(string $text): array
+    /** @return array{versions: array<string, string>, instances: array<string, string>} */
+    private function npmView(string $text): array
     {
         $data = $this->decode($text, 'package-lock.json');
         if (! isset($data['packages']) || ! is_array($data['packages'])) {
             throw new Failure('package-lock.json has no packages field', 70);
         }
-        $best = [];
+        $versions = [];
+        $instances = [];
         foreach ($data['packages'] as $path => $package) {
             if (! is_string($path) || ! is_array($package)) {
                 continue;
             }
-            $name = $this->npmName($path);
+            $name = $this->npmInstanceName($path);
             if ($name === null || ! is_string($package['version'] ?? null) || $package['version'] === '') {
                 continue;
             }
-            $depth = substr_count($path, 'node_modules/');
-            if (! isset($best[$name]) || $depth < $best[$name]['depth']) {
-                $best[$name] = ['depth' => $depth, 'version' => $this->normalize($package['version'])];
+            $version = $this->normalize($package['version']);
+            $instances[$path] = $name.'@'.$version;
+            if ($path === 'node_modules/'.$name) {
+                $versions[$name] = $version;
             }
         }
-        $versions = [];
-        foreach ($best as $name => $row) {
-            $versions[$name] = $row['version'];
-        }
+        ksort($versions, SORT_STRING);
+        ksort($instances, SORT_STRING);
 
-        return $versions;
+        return ['versions' => $versions, 'instances' => $instances];
     }
 
-    /** @return array<string, string> */
-    private function bunVersions(string $text): array
+    /** @return array{versions: array<string, string>, instances: array<string, string>} */
+    private function bunView(string $text): array
     {
         $stripped = preg_replace('/,\s*([}\]])/', '$1', $text);
         $data = $this->decode(is_string($stripped) ? $stripped : '', 'bun.lock');
@@ -238,76 +265,126 @@ final class Summary
             throw new Failure('bun.lock has no packages field', 70);
         }
         $versions = [];
-        foreach ($data['packages'] as $name => $entry) {
-            if (! is_string($name) || ! is_array($entry) || ! is_string($entry[0] ?? null)) {
+        $instances = [];
+        foreach ($data['packages'] as $key => $entry) {
+            if (! is_string($key) || ! is_array($entry) || ! is_string($entry[0] ?? null)) {
                 throw new Failure('Invalid bun.lock package entry', 70);
             }
-            $prefix = $name.'@';
-            if (! str_starts_with($entry[0], $prefix)) {
-                throw new Failure('Invalid bun.lock package entry', 70);
+            [$name, $version] = $this->bunDescriptor($entry[0]);
+            $version = $this->normalize($version);
+            $instances[$key] = $name.'@'.$version;
+            if (count($this->bunKeyParts($key)) === 1) {
+                $versions[$key] = $version;
             }
-            $version = substr($entry[0], strlen($prefix));
-            if ($version === '') {
-                throw new Failure('Invalid bun.lock package entry', 70);
-            }
-            $versions[$name] = $this->normalize($version);
         }
+        ksort($versions, SORT_STRING);
+        ksort($instances, SORT_STRING);
 
-        return $versions;
+        return ['versions' => $versions, 'instances' => $instances];
     }
 
-    private function npmName(string $path): ?string
+    /** @return array{0: string, 1: string} */
+    private function bunDescriptor(string $descriptor): array
     {
-        if ($path === '' || ! str_contains($path, 'node_modules/')) {
+        if (str_starts_with($descriptor, '@')) {
+            $slash = strpos($descriptor, '/');
+            $at = $slash === false ? false : strpos($descriptor, '@', $slash + 1);
+        } else {
+            $at = strpos($descriptor, '@');
+        }
+        if ($at === false || $at === 0) {
+            throw new Failure('Invalid bun.lock package entry', 70);
+        }
+        $name = substr($descriptor, 0, $at);
+        $version = substr($descriptor, $at + 1);
+        if ($name === '' || $version === '') {
+            throw new Failure('Invalid bun.lock package entry', 70);
+        }
+
+        return [$name, $version];
+    }
+
+    /** @return list<string> */
+    private function bunKeyParts(string $key): array
+    {
+        $parts = [];
+        $rest = $key;
+        while ($rest !== '') {
+            if (str_starts_with($rest, '@')) {
+                $slash = strpos($rest, '/');
+                if ($slash === false) {
+                    throw new Failure('Invalid bun.lock package entry', 70);
+                }
+                $next = strpos($rest, '/', $slash + 1);
+                if ($next === false) {
+                    $parts[] = $rest;
+                    break;
+                }
+                $parts[] = substr($rest, 0, $next);
+                $rest = substr($rest, $next + 1);
+
+                continue;
+            }
+            $slash = strpos($rest, '/');
+            if ($slash === false) {
+                $parts[] = $rest;
+                break;
+            }
+            $parts[] = substr($rest, 0, $slash);
+            $rest = substr($rest, $slash + 1);
+        }
+        if ($parts === [] || in_array('', $parts, true)) {
+            throw new Failure('Invalid bun.lock package entry', 70);
+        }
+
+        return $parts;
+    }
+
+    private function npmInstanceName(string $path): ?string
+    {
+        $mark = 'node_modules/';
+        $at = strrpos($path, $mark);
+        if ($at === false) {
             return null;
         }
-        $name = substr($path, (int) strrpos($path, 'node_modules/') + strlen('node_modules/'));
+        $name = substr($path, $at + strlen($mark));
         if ($name === '' || str_contains($name, '/node_modules/')) {
             return null;
         }
-        $slashes = substr_count($name, '/');
-        if ($name[0] === '@') {
-            return $slashes === 1 ? $name : null;
+        if (str_starts_with($name, '@')) {
+            return substr_count($name, '/') === 1 ? $name : null;
         }
 
-        return $slashes === 0 ? $name : null;
-    }
-
-    /** @return array<string, array{0: ?string, 1: ?string}> */
-    private function diff(array $before, array $after): array
-    {
-        $names = array_unique([...array_keys($before), ...array_keys($after)]);
-        sort($names, SORT_STRING);
-        $changes = [];
-        foreach ($names as $name) {
-            $from = $before[$name] ?? null;
-            $to = $after[$name] ?? null;
-            if ($from !== $to) {
-                $changes[$name] = [$from, $to];
-            }
-        }
-
-        return $changes;
+        return str_contains($name, '/') ? null : $name;
     }
 
     /** @return array<string, mixed> */
-    private function composerDirect(string $path): array
+    private function directNames(string $manager, ?string $text): array
     {
-        $data = $this->decode((string) file_get_contents($path), 'composer.json');
+        if ($text === null) {
+            return [];
+        }
+        $label = $manager === 'composer' ? 'composer.json' : 'package.json';
+        $data = $this->decode($text, $label);
+        $sections = $manager === 'composer'
+            ? ['require', 'require-dev']
+            : ['dependencies', 'devDependencies', 'optionalDependencies'];
         $direct = [];
-        foreach (['require', 'require-dev'] as $section) {
+        foreach ($sections as $section) {
             if (! isset($data[$section])) {
                 continue;
             }
             if (! is_array($data[$section])) {
-                throw new Failure('Cannot read composer.json', 70);
+                throw new Failure('Cannot read '.$label, 70);
             }
             foreach ($data[$section] as $name => $constraint) {
-                if (is_string($name) && $name !== 'php' && ! str_starts_with($name, 'ext-')) {
-                    $direct[$name] = $constraint;
+                if (! is_string($name) || $name === '' || $name === 'php' || str_starts_with($name, 'ext-')) {
+                    continue;
                 }
+                $direct[$name] = $constraint;
             }
         }
+        ksort($direct, SORT_STRING);
 
         return $direct;
     }
@@ -317,9 +394,16 @@ final class Summary
     {
         $major = array_any($rows, fn (array $row): bool => $row['major']);
         $security = array_any($rows, fn (array $row): bool => $row['advisories'] !== []);
-        $title = count($rows) === 1
-            ? 'Update '.$rows[0]['package'].' to '.$rows[0]['to'].($rows[0]['advisories'] !== [] ? ' (security fix)' : '')
-            : 'Update dependencies for '.(new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('F Y');
+        $only = count($rows) === 1 ? $rows[0] : null;
+        if ($only !== null && $only['to'] === '—' && $only['from'] !== '—') {
+            $title = 'Remove '.$only['package'];
+        } elseif ($only !== null && $only['from'] === '—' && $only['to'] !== '—') {
+            $title = 'Add '.$only['package'].' '.$only['to'];
+        } elseif ($only !== null) {
+            $title = 'Update '.$only['package'].' to '.$only['to'].($only['advisories'] !== [] ? ' (security fix)' : '');
+        } else {
+            $title = 'Update dependencies for '.(new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('F Y');
+        }
         $what = $this->what($rows, $major, $security);
         $meaning = $major
             ? 'This includes a major upgrade. Read the upgrade notes before you deploy.'
@@ -340,6 +424,15 @@ final class Summary
     {
         if (count($rows) === 1) {
             $row = $rows[0];
+            if ($row['to'] === '—' && $row['from'] !== '—') {
+                return 'Removed '.$row['package'].' '.$row['from'].'.';
+            }
+            if ($row['from'] === '—' && $row['to'] !== '—') {
+                return 'Added '.$row['package'].' '.$row['to'].'.';
+            }
+            if ($row['from'] === $row['to'] && $row['advisories'] !== []) {
+                return 'Updated '.$row['package'].' to fix a security advisory.';
+            }
             $sentence = 'Updated '.$row['package'].' from '.$row['from'].' to '.$row['to'];
             if ($row['advisories'] !== []) {
                 return $sentence.' to fix a security advisory.';
@@ -472,6 +565,18 @@ final class Summary
             return null;
         }
         throw new Failure('Git failed: '.trim($error), 70);
+    }
+
+    private function writeManifest(string $from, string $to, ?string $contents): void
+    {
+        if ($contents !== null) {
+            if (file_put_contents($to, $contents) === false) {
+                throw new Failure('Cannot compare the base lockfile', 70);
+            }
+
+            return;
+        }
+        $this->copy($from, $to);
     }
 
     private function copy(string $from, string $to): void
