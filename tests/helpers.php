@@ -37,6 +37,12 @@ function newMaintainerRepo(bool $vitePlus = true): array
         'require-dev' => ['dev/tool' => '^1.0'],
     ]));
     file_put_contents($repo.'/package.json', json_encode($js));
+    file_put_contents($repo.'/package-lock.json', json_encode([
+        'name' => 'app',
+        'lockfileVersion' => 3,
+        'requires' => true,
+        'packages' => ['' => []],
+    ]));
     file_put_contents($repo.'/vet.json', '{"minimum-release-age":7,"minimum-release-age-exclude":["existing/pkg"]}');
 
     return [$directory, $repo];

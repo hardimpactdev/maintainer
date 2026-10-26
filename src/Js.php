@@ -31,12 +31,14 @@ final class JsWorkspace
 
     private static function manager(string $dir, array $manifest): string
     {
-        $declared = self::declaredManager($manifest);
-        if ($declared !== null) {
-            return $declared;
-        }
         $npm = is_file($dir.'/package-lock.json');
         $bun = is_file($dir.'/bun.lock');
+        $declared = self::declaredManager($manifest);
+        if ($declared !== null) {
+            self::requireDeclaredLock($declared, $npm, $bun);
+
+            return $declared;
+        }
         if ($npm && $bun) {
             throw new Failure('package-lock.json and bun.lock disagree. Declare packageManager or keep one lockfile.', 70);
         }
@@ -47,6 +49,25 @@ final class JsWorkspace
             return 'bun';
         }
         throw new Failure('Cannot tell whether this side uses npm or Bun. Declare packageManager or add package-lock.json or bun.lock.', 70);
+    }
+
+    private static function requireDeclaredLock(string $manager, bool $npm, bool $bun): void
+    {
+        $own = $manager === 'npm' ? 'package-lock.json' : 'bun.lock';
+        $other = $manager === 'npm' ? 'bun.lock' : 'package-lock.json';
+        $hasOwn = $manager === 'npm' ? $npm : $bun;
+        $hasOther = $manager === 'npm' ? $bun : $npm;
+        if ($hasOwn && ! $hasOther) {
+            return;
+        }
+        if (! $hasOwn && $hasOther) {
+            throw new Failure('package.json declares '.$manager.' but this side has '.$other.' and no '.$own.'.', 70);
+        }
+        if (! $hasOwn) {
+            throw new Failure('package.json declares '.$manager.' but this side has no '.$own.'.', 70);
+        }
+
+        throw new Failure('package.json declares '.$manager.' but this side also has '.$other.'.', 70);
     }
 
     /** @param array<mixed> $manifest */

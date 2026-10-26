@@ -30,6 +30,7 @@ beforeEach(function () {
   },
 }
 JSON);
+    unlink($this->repo.'/package-lock.json');
     $this->table = implode("\n", [
         'bun outdated v1.3.14',
         '|----------------------------------------------------------------|',
