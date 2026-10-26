@@ -30,6 +30,10 @@ it('installs a fresh Vite+ side with npm ci before detect and leaves the lockfil
         ->and(is_executable($this->repo.'/node_modules/.bin/vp'))->toBeTrue()
         ->and(file_get_contents($this->repo.'/package-lock.json'))->toBe($lock)
         ->and(file_get_contents($this->repo.'/package.json'))->toBe($manifest);
+    $payload = json_decode($result->getOutput(), true, 512, JSON_THROW_ON_ERROR);
+    expect($payload['schema'])->toBe(1)
+        ->and($result->getOutput())->not->toContain('added 12 packages')
+        ->and($result->getErrorOutput())->toContain('added 12 packages');
 });
 
 it('installs a fresh Bun Vite+ side with a frozen install and leaves bun.lock unchanged', function () {
@@ -59,6 +63,10 @@ JSON);
         ->and($log)->not->toContain('npm|ci')
         ->and(is_executable($this->repo.'/node_modules/.bin/vp'))->toBeTrue()
         ->and(file_get_contents($this->repo.'/bun.lock'))->toBe($lock);
+    $payload = json_decode($result->getOutput(), true, 512, JSON_THROW_ON_ERROR);
+    expect($payload['schema'])->toBe(1)
+        ->and($result->getOutput())->not->toContain('added 12 packages')
+        ->and($result->getErrorOutput())->toContain('added 12 packages');
 });
 
 it('stops when the frozen install fails and does not run Vite+', function () {
@@ -79,6 +87,33 @@ it('does not install again when node_modules exists without an executable vp', f
         ->and($result->getErrorOutput())->toContain('Missing executable node_modules/.bin/vp; install the repository dependencies first.')
         ->and(commandLog($this->directory))->not->toContain('npm|ci')
         ->and(is_file($this->directory.'/commands'))->toBeFalse();
+});
+
+it('sends wrapper bootstrap output to stderr and keeps detect JSON on stdout', function () {
+    mkdir($this->repo.'/scripts');
+    copy(packageRoot().'/resources/dependencies', $this->repo.'/scripts/dependencies');
+    chmod($this->repo.'/scripts/dependencies', 0755);
+    mkdir($this->directory.'/wrap-bin');
+    file_put_contents($this->directory.'/wrap-bin/composer', <<<'SH'
+#!/bin/sh
+echo "Installing dependencies from lock file"
+mkdir -p vendor/bin
+cat > vendor/bin/maintainer << 'EOF'
+#!/bin/sh
+printf '%s\n' '{"schema":1,"candidates":[]}'
+EOF
+chmod +x vendor/bin/maintainer
+SH);
+    chmod($this->directory.'/wrap-bin/composer', 0755);
+    $result = new Process([$this->repo.'/scripts/dependencies', 'detect'], $this->repo, [
+        'PATH' => $this->directory.'/wrap-bin:'.getenv('PATH'),
+    ]);
+    $result->run();
+    expect($result->getExitCode())->toBe(0, $result->getErrorOutput());
+    $payload = json_decode($result->getOutput(), true, 512, JSON_THROW_ON_ERROR);
+    expect($payload)->toBe(['schema' => 1, 'candidates' => []])
+        ->and($result->getOutput())->not->toContain('Installing dependencies')
+        ->and($result->getErrorOutput())->toContain('Installing dependencies from lock file');
 });
 
 /** @return array<string, list<array<string, mixed>>> */

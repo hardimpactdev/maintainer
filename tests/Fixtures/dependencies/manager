@@ -20,6 +20,7 @@ $materialize = function () use ($frozen): void {
         copy(__FILE__, 'node_modules/.bin/vp');
         chmod('node_modules/.bin/vp', 0755);
     }
+    echo "added 12 packages\n";
 };
 // Composer has no installed inventory in a fresh VM. Fixture responses must
 // not hide the empty, non-JSON output when audit is called without --locked.

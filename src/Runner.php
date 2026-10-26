@@ -243,7 +243,7 @@ final class Runner
             ? ['bun', 'install', '--frozen-lockfile', '--ignore-scripts']
             : ['npm', 'ci', '--ignore-scripts'];
         try {
-            (new Process($side->dir))->run($command);
+            (new Process($side->dir))->runToStderr($command);
         } catch (CommandFailed $failed) {
             throw new Failure('Frozen '.$js->manager.' install failed for side '.$side->name.'.', $failed->exitCode);
         }
