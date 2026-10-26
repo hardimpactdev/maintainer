@@ -122,6 +122,8 @@ An Expo SDK major is one candidate, `package` `expo`, with `"align": "expo-insta
 
 Composer majors come from `composer outdated --locked --major-only`. Composer and npm audits read the lockfile, so a fresh checkout does not need `vendor`. For a `0.x` release, a newer minor counts as a major.
 
+npm `outdated --json` omits `current` when `node_modules` is absent. Detect reads that version from `package-lock.json` at `packages["node_modules/<name>"].version`, or from `bun.lock` when the manager is Bun. It does not install packages in order to detect updates. A direct package that has no current version in either place is an error. Rows that are not direct dependencies are still skipped.
+
 npm advisories keep the real `via` id, URL, and severity on the controlling direct dependency. A package name is never used as an id.
 
 Bun `vp outdated --format json` prints a table. The trailing `*` is a release-age marker, not part of the version. Rows that are not direct dependencies are skipped, including the Vite alias target `@voidzero-dev/vite-plus-core`. Bun audit ids come from `vp pm audit --json`. An indirect advisory is attached by walking `bun.lock`, including peers, and the walk stops at another direct dependency. A direct package keeps its own advisories.
