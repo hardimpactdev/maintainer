@@ -168,6 +168,12 @@ final class Expo
 
 final class JsReports
 {
+    /** @var array<string, array<string, mixed>> */
+    private array $npmLocks = [];
+
+    /** @var array<string, array<string, mixed>> */
+    private array $bunLocks = [];
+
     public function __construct(private readonly Process $process) {}
 
     /** @param array<string, mixed> $direct
@@ -191,7 +197,7 @@ final class JsReports
             throw new Failure('Dependency command failed: '.implode(' ', $args).': '.$error, 70);
         }
 
-        return $this->fromJson($data, $js->direct);
+        return $this->fromJson($data, $js);
     }
 
     /**
@@ -380,18 +386,8 @@ final class JsReports
     /** @return array<string, list<string>> */
     private function bunGraph(string $dir): array
     {
-        $path = $dir.'/bun.lock';
-        if (! is_file($path)) {
-            throw new Failure('Cannot read bun.lock', 70);
-        }
-        $text = file_get_contents($path);
-        $stripped = preg_replace('/,\s*([}\]])/', '$1', is_string($text) ? $text : '');
-        try {
-            $data = json_decode(is_string($stripped) ? $stripped : '', true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            throw new Failure('Cannot read bun.lock', 70);
-        }
-        if (! is_array($data) || ! isset($data['packages']) || ! is_array($data['packages'])) {
+        $data = $this->bunLock($dir);
+        if (! isset($data['packages']) || ! is_array($data['packages'])) {
             throw new Failure('bun.lock has no packages field', 70);
         }
         $graph = [];
@@ -422,29 +418,119 @@ final class JsReports
 
     /**
      * @param array<mixed> $data
-     * @param array<string, mixed> $direct
      * @return list<array{name: string, current: string, latest: string}>
      */
-    private function fromJson(array $data, array $direct): array
+    private function fromJson(array $data, JsWorkspace $js): array
     {
         $rows = [];
         foreach ($data as $name => $item) {
-            if (! is_array($item) || ! isset($item['current'], $item['latest']) || ! is_string($item['current']) || ! is_string($item['latest'])) {
+            if (! is_array($item) || ! is_string($item['latest'] ?? null) || $item['latest'] === '') {
                 throw new Failure('Unsupported outdated JSON shape', 70);
             }
             $resolved = $item['name'] ?? $name;
             if (! is_string($resolved) || $resolved === '') {
                 throw new Failure('Outdated entry has no package name', 70);
             }
-            if (! array_key_exists($resolved, $direct)) {
+            if (! array_key_exists($resolved, $js->direct)) {
                 continue;
             }
-            if ($this->isMajor($item['current'], $item['latest'])) {
-                $rows[] = ['name' => $resolved, 'current' => $this->stripAge($item['current']), 'latest' => $this->stripAge($item['latest'])];
+            $current = $item['current'] ?? null;
+            if (! is_string($current) || $current === '') {
+                $current = $this->lockedVersion($js, $resolved);
+            }
+            if (! is_string($current) || $current === '') {
+                throw new Failure('Outdated entry has no current version: '.$resolved, 70);
+            }
+            if ($this->isMajor($current, $item['latest'])) {
+                $rows[] = ['name' => $resolved, 'current' => $this->stripAge($current), 'latest' => $this->stripAge($item['latest'])];
             }
         }
 
         return $rows;
+    }
+
+    private function lockedVersion(JsWorkspace $js, string $name): ?string
+    {
+        return $js->manager === 'bun' ? $this->bunLockedVersion($js->dir, $name) : $this->npmLockedVersion($js->dir, $name);
+    }
+
+    private function npmLockedVersion(string $dir, string $name): ?string
+    {
+        $packages = $this->npmLock($dir)['packages'] ?? null;
+        if (! is_array($packages)) {
+            throw new Failure('package-lock.json has no packages field', 70);
+        }
+        $entry = $packages['node_modules/'.$name] ?? null;
+        $version = is_array($entry) ? ($entry['version'] ?? null) : null;
+
+        return is_string($version) && $version !== '' ? $version : null;
+    }
+
+    /** @return array<string, mixed> */
+    private function npmLock(string $dir): array
+    {
+        if (isset($this->npmLocks[$dir])) {
+            return $this->npmLocks[$dir];
+        }
+        $path = $dir.'/package-lock.json';
+        if (! is_file($path)) {
+            throw new Failure('Cannot read package-lock.json', 70);
+        }
+        try {
+            $data = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new Failure('Cannot read package-lock.json', 70);
+        }
+        if (! is_array($data)) {
+            throw new Failure('Cannot read package-lock.json', 70);
+        }
+        $this->npmLocks[$dir] = $data;
+
+        return $data;
+    }
+
+    private function bunLockedVersion(string $dir, string $name): ?string
+    {
+        $packages = $this->bunLock($dir)['packages'] ?? null;
+        if (! is_array($packages)) {
+            throw new Failure('bun.lock has no packages field', 70);
+        }
+        $entry = $packages[$name] ?? null;
+        if (! is_array($entry) || ! is_string($entry[0] ?? null)) {
+            return null;
+        }
+        $prefix = $name.'@';
+        if (! str_starts_with($entry[0], $prefix)) {
+            return null;
+        }
+        $version = substr($entry[0], strlen($prefix));
+
+        return $version !== '' ? $version : null;
+    }
+
+    /** @return array<string, mixed> */
+    private function bunLock(string $dir): array
+    {
+        if (isset($this->bunLocks[$dir])) {
+            return $this->bunLocks[$dir];
+        }
+        $path = $dir.'/bun.lock';
+        if (! is_file($path)) {
+            throw new Failure('Cannot read bun.lock', 70);
+        }
+        $text = file_get_contents($path);
+        $stripped = preg_replace('/,\s*([}\]])/', '$1', is_string($text) ? $text : '');
+        try {
+            $data = json_decode(is_string($stripped) ? $stripped : '', true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new Failure('Cannot read bun.lock', 70);
+        }
+        if (! is_array($data)) {
+            throw new Failure('Cannot read bun.lock', 70);
+        }
+        $this->bunLocks[$dir] = $data;
+
+        return $data;
     }
 
     /**

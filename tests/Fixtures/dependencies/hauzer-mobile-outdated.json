@@ -1,0 +1,157 @@
+{
+  "@expo-google-fonts/inter": {
+    "wanted": "0.4.2",
+    "latest": "0.4.2",
+    "dependent": "mobile"
+  },
+  "@expo/ui": {
+    "wanted": "57.0.23",
+    "latest": "58.0.20",
+    "dependent": "mobile"
+  },
+  "@op-engineering/op-sqlite": {
+    "wanted": "18.2.5",
+    "latest": "18.2.5",
+    "dependent": "mobile"
+  },
+  "@powersync/common": {
+    "wanted": "2.4.0",
+    "latest": "2.4.0",
+    "dependent": "mobile"
+  },
+  "@react-native-community/netinfo": {
+    "wanted": "12.0.1",
+    "latest": "12.0.1",
+    "dependent": "mobile"
+  },
+  "@react-navigation/bottom-tabs": {
+    "wanted": "7.21.0",
+    "latest": "7.21.0",
+    "dependent": "mobile"
+  },
+  "@react-navigation/native": {
+    "wanted": "7.5.1",
+    "latest": "7.5.1",
+    "dependent": "mobile"
+  },
+  "@react-navigation/native-stack": {
+    "wanted": "7.21.0",
+    "latest": "7.21.0",
+    "dependent": "mobile"
+  },
+  "bwip-js": {
+    "wanted": "4.11.4",
+    "latest": "4.11.4",
+    "dependent": "mobile"
+  },
+  "expo": {
+    "wanted": "57.0.28",
+    "latest": "58.0.14",
+    "dependent": "mobile"
+  },
+  "expo-application": {
+    "wanted": "57.0.3",
+    "latest": "58.1.2",
+    "dependent": "mobile"
+  },
+  "expo-auth-session": {
+    "wanted": "57.0.16",
+    "latest": "58.0.13",
+    "dependent": "mobile"
+  },
+  "expo-camera": {
+    "wanted": "57.0.6",
+    "latest": "58.0.10",
+    "dependent": "mobile"
+  },
+  "expo-clipboard": {
+    "wanted": "57.0.2",
+    "latest": "58.0.3",
+    "dependent": "mobile"
+  },
+  "expo-crypto": {
+    "wanted": "57.0.4",
+    "latest": "58.0.7",
+    "dependent": "mobile"
+  },
+  "expo-dev-client": {
+    "wanted": "57.0.20",
+    "latest": "58.0.14",
+    "dependent": "mobile"
+  },
+  "expo-document-picker": {
+    "wanted": "57.0.3",
+    "latest": "58.0.4",
+    "dependent": "mobile"
+  },
+  "expo-file-system": {
+    "wanted": "57.0.7",
+    "latest": "58.0.9",
+    "dependent": "mobile"
+  },
+  "expo-font": {
+    "wanted": "57.0.4",
+    "latest": "58.0.8",
+    "dependent": "mobile"
+  },
+  "expo-image-picker": {
+    "wanted": "57.0.20",
+    "latest": "58.0.10",
+    "dependent": "mobile"
+  },
+  "expo-secure-store": {
+    "wanted": "57.0.4",
+    "latest": "58.0.2",
+    "dependent": "mobile"
+  },
+  "expo-sharing": {
+    "wanted": "57.0.23",
+    "latest": "58.0.19",
+    "dependent": "mobile"
+  },
+  "expo-web-browser": {
+    "wanted": "57.0.3",
+    "latest": "58.0.6",
+    "dependent": "mobile"
+  },
+  "react": {
+    "wanted": "19.2.3",
+    "latest": "19.3.1",
+    "dependent": "mobile"
+  },
+  "react-dom": {
+    "wanted": "19.2.3",
+    "latest": "19.3.1",
+    "dependent": "mobile"
+  },
+  "react-native": {
+    "wanted": "0.86.3",
+    "latest": "0.88.0",
+    "dependent": "mobile"
+  },
+  "react-native-safe-area-context": {
+    "wanted": "5.7.0",
+    "latest": "5.10.1",
+    "dependent": "mobile"
+  },
+  "react-native-screens": {
+    "wanted": "4.29.0",
+    "latest": "4.30.0",
+    "dependent": "mobile"
+  },
+  "react-native-svg": {
+    "wanted": "15.15.4",
+    "latest": "15.16.0",
+    "dependent": "mobile"
+  },
+  "react-native-web": {
+    "wanted": "0.21.4",
+    "latest": "0.21.4",
+    "dependent": "mobile"
+  },
+  "ulid": {
+    "wanted": "3.0.1",
+    "latest": "3.0.2",
+    "dependent": "mobile"
+  }
+}
