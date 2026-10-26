@@ -8,9 +8,9 @@ final class Policy
 {
     public function __construct(private readonly string $root) {}
 
-    public function allowComposer(Side $side, string $package): void
+    public function allowComposer(AppPath $place, string $package): void
     {
-        $path = $side->dir.'/vet.json';
+        $path = $place->dir.'/vet.json';
         if (! is_file($path)) {
             return;
         }
@@ -31,12 +31,12 @@ final class Policy
             $vet['minimum-release-age-exclude'] = array_values($exclude);
             $this->writeJson($path, $vet);
         }
-        $this->record($side->name, 'composer', $package, $days);
+        $this->record($place->path, 'composer', $package, $days);
     }
 
-    public function allowBun(Side $side, string $package): void
+    public function allowBun(AppPath $place, string $package): void
     {
-        $path = $side->dir.'/bunfig.toml';
+        $path = $place->dir.'/bunfig.toml';
         if (! is_file($path)) {
             return;
         }
@@ -82,10 +82,10 @@ final class Policy
             }
             $this->write($path, $updated);
         }
-        $this->record($side->name, 'js', $package, $days);
+        $this->record($place->path, 'js', $package, $days);
     }
 
-    /** @return list<array{side: string, manager: string, package: string, recorded_on: string, remove_on: string}> */
+    /** @return list<array{path: string, manager: string, package: string, recorded_on: string, remove_on: string}> */
     public function stale(Config $config): array
     {
         $records = $this->records();
@@ -96,7 +96,7 @@ final class Policy
         $excluded = $this->currentExclusions($config);
         $stale = [];
         foreach ($records as $record) {
-            $key = $record['side']."\0".$record['manager']."\0".$record['package'];
+            $key = $record['path']."\0".$record['manager']."\0".$record['package'];
             if (! isset($excluded[$key])) {
                 continue;
             }
@@ -109,7 +109,7 @@ final class Policy
                 continue;
             }
             $stale[] = [
-                'side' => $record['side'],
+                'path' => $record['path'],
                 'manager' => $record['manager'],
                 'package' => $record['package'],
                 'recorded_on' => $record['recorded_on'],
@@ -120,7 +120,7 @@ final class Policy
         return $stale;
     }
 
-    private function record(string $side, string $manager, string $package, int $days): void
+    private function record(string $appPath, string $manager, string $package, int $days): void
     {
         $path = $this->root.'/maintainer-exceptions.json';
         $document = is_file($path) ? $this->readJson($path, 'maintainer-exceptions.json') : ['schema' => 1, 'exceptions' => []];
@@ -128,12 +128,12 @@ final class Policy
             throw new Failure('Cannot read maintainer-exceptions.json', 70);
         }
         foreach ($document['exceptions'] as $existing) {
-            if (is_array($existing) && ($existing['side'] ?? null) === $side && ($existing['manager'] ?? null) === $manager && ($existing['package'] ?? null) === $package) {
+            if (is_array($existing) && ($existing['path'] ?? null) === $appPath && ($existing['manager'] ?? null) === $manager && ($existing['package'] ?? null) === $package) {
                 return;
             }
         }
         $document['exceptions'][] = [
-            'side' => $side,
+            'path' => $appPath,
             'manager' => $manager,
             'package' => $package,
             'recorded_on' => gmdate('Y-m-d'),
@@ -142,7 +142,7 @@ final class Policy
         $this->writeJson($path, $document);
     }
 
-    /** @return list<array{side: string, manager: string, package: string, recorded_on: string, days: int}> */
+    /** @return list<array{path: string, manager: string, package: string, recorded_on: string, days: int}> */
     private function records(): array
     {
         $path = $this->root.'/maintainer-exceptions.json';
@@ -155,11 +155,11 @@ final class Policy
         }
         $records = [];
         foreach ($document['exceptions'] as $entry) {
-            if (! is_array($entry) || ! is_string($entry['side'] ?? null) || ! is_string($entry['manager'] ?? null) || ! is_string($entry['package'] ?? null) || ! is_string($entry['recorded_on'] ?? null) || ! is_int($entry['days'] ?? null)) {
+            if (! is_array($entry) || ! is_string($entry['path'] ?? null) || ! is_string($entry['manager'] ?? null) || ! is_string($entry['package'] ?? null) || ! is_string($entry['recorded_on'] ?? null) || ! is_int($entry['days'] ?? null)) {
                 throw new Failure('Cannot read maintainer-exceptions.json', 70);
             }
             $records[] = [
-                'side' => $entry['side'],
+                'path' => $entry['path'],
                 'manager' => $entry['manager'],
                 'package' => $entry['package'],
                 'recorded_on' => $entry['recorded_on'],
@@ -174,23 +174,23 @@ final class Policy
     private function currentExclusions(Config $config): array
     {
         $excluded = [];
-        foreach ($config->sides as $side) {
-            $vet = $side->dir.'/vet.json';
+        foreach ($config->paths as $place) {
+            $vet = $place->dir.'/vet.json';
             if (is_file($vet)) {
                 $data = $this->readJson($vet, 'vet.json');
                 foreach ($data['minimum-release-age-exclude'] ?? [] as $package) {
                     if (is_string($package)) {
-                        $excluded[$side->name."\0composer\0".$package] = true;
+                        $excluded[$place->path."\0composer\0".$package] = true;
                     }
                 }
             }
-            $bunfig = $side->dir.'/bunfig.toml';
+            $bunfig = $place->dir.'/bunfig.toml';
             if (is_file($bunfig)) {
                 $text = (string) file_get_contents($bunfig);
                 if (preg_match('/^minimumReleaseAgeExcludes\s*=\s*\[(.*)]\s*$/m', $text, $match) === 1) {
                     preg_match_all('/"([^"\\\\]*)"/', $match[1], $names);
                     foreach ($names[1] as $package) {
-                        $excluded[$side->name."\0js\0".$package] = true;
+                        $excluded[$place->path."\0js\0".$package] = true;
                     }
                 }
             }

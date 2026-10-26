@@ -6,13 +6,13 @@ namespace Hardimpactdev\Maintainer;
 
 final class Runner
 {
-    public function routine(Config $config, ?string $sideName): void
+    public function routine(Config $config, ?string $path): void
     {
-        $sides = $config->selected($sideName);
-        foreach ($sides as $side) {
+        $places = $config->selected($path);
+        foreach ($places as $side) {
             $this->preflight($side);
         }
-        foreach ($sides as $side) {
+        foreach ($places as $side) {
             $process = new Process($side->dir);
             if ($side->composer) {
                 $process->run(['composer', 'update', '--no-interaction']);
@@ -23,15 +23,15 @@ final class Runner
         }
     }
 
-    public function detect(Config $config, ?string $sideName): void
+    public function detect(Config $config, ?string $path): void
     {
-        $sides = $config->selected($sideName);
-        foreach ($sides as $side) {
+        $places = $config->selected($path);
+        foreach ($places as $side) {
             $this->preflight($side);
         }
         $candidates = [];
         $expo = [];
-        foreach ($sides as $side) {
+        foreach ($places as $side) {
             $process = new Process($side->dir);
             if ($side->composer) {
                 $php = $process->json(['composer', 'outdated', '--locked', '--major-only', '--format=json']);
@@ -42,7 +42,7 @@ final class Runner
                     if (! is_array($item) || ! is_string($item['name'] ?? null) || ! is_string($item['version'] ?? null) || ! is_string($item['latest'] ?? null)) {
                         throw new Failure('Composer outdated entry is incomplete', 70);
                     }
-                    $this->add($candidates, $side->name, 'composer', $item['name'], 'major', [
+                    $this->add($candidates, $side->path, 'composer', $item['name'], 'major', [
                         'current' => $item['version'],
                         'latest' => $item['latest'],
                     ]);
@@ -51,20 +51,20 @@ final class Runner
             if ($side->js) {
                 $js = JsWorkspace::load($side->dir);
                 if ($js->expo) {
-                    $expo[$side->name] = true;
+                    $expo[$side->path] = true;
                 }
                 foreach ((new JsReports($process))->majors($js) as $item) {
-                    $this->add($candidates, $side->name, 'js', $item['name'], 'major', [
+                    $this->add($candidates, $side->path, 'js', $item['name'], 'major', [
                         'current' => $item['current'],
                         'latest' => $item['latest'],
                     ]);
                 }
             }
         }
-        foreach ($sides as $side) {
+        foreach ($places as $side) {
             foreach ($this->auditSide($side) as $manager => $packages) {
                 foreach ($packages as $name => $advisories) {
-                    $this->add($candidates, $side->name, $manager, $name, 'security', ['advisories' => $advisories]);
+                    $this->add($candidates, $side->path, $manager, $name, 'security', ['advisories' => $advisories]);
                 }
             }
         }
@@ -79,9 +79,9 @@ final class Runner
     }
 
     /** @param list<string> $ids */
-    public function package(Config $config, ?string $sideName, string $manager, string $name, string $version, string $purpose, array $ids): void
+    public function package(Config $config, string $path, string $manager, string $name, string $version, string $purpose, array $ids): void
     {
-        $side = $config->sideFor($sideName, $manager);
+        $side = $config->placeFor($path, $manager);
         $manifestPath = $side->dir.'/'.($manager === 'composer' ? 'composer.json' : 'package.json');
         $manifest = $this->readJson($manifestPath);
         $js = $manager === 'js' ? JsWorkspace::load($side->dir) : null;
@@ -181,17 +181,17 @@ final class Runner
         }
     }
 
-    private function preflight(Side $side): void
+    private function preflight(AppPath $side): void
     {
         if ($side->composer) {
             if (! is_file($side->dir.'/composer.json')) {
-                throw new Failure('Side '.$side->name.' is missing composer.json', 70);
+                throw new Failure('Path '.$side->path.' is missing composer.json', 70);
             }
             $this->onPath('composer');
         }
         if ($side->js) {
             if (! is_file($side->dir.'/package.json')) {
-                throw new Failure('Side '.$side->name.' is missing package.json', 70);
+                throw new Failure('Path '.$side->path.' is missing package.json', 70);
             }
             $js = JsWorkspace::load($side->dir);
             if ($js->vitePlus) {
@@ -202,7 +202,7 @@ final class Runner
         }
     }
 
-    private function requireTools(Side $side, string $manager, ?JsWorkspace $js, string $name): void
+    private function requireTools(AppPath $side, string $manager, ?JsWorkspace $js, string $name): void
     {
         if ($manager === 'composer') {
             $this->onPath('composer');
@@ -210,7 +210,7 @@ final class Runner
             return;
         }
         if ($js === null) {
-            throw new Failure('Side '.$side->name.' has no js project', 64);
+            throw new Failure('Path '.$side->path.' has no js project', 64);
         }
         if ($js->expo && $name === 'expo') {
             $this->onPath('npx');
@@ -225,7 +225,7 @@ final class Runner
         $this->onPath($js->manager);
     }
 
-    private function localVp(Side $side): void
+    private function localVp(AppPath $side): void
     {
         if (! is_dir($side->dir.'/node_modules')) {
             $this->installJs($side);
@@ -235,7 +235,7 @@ final class Runner
         }
     }
 
-    private function installJs(Side $side): void
+    private function installJs(AppPath $side): void
     {
         $js = JsWorkspace::load($side->dir);
         $this->onPath($js->manager);
@@ -245,7 +245,7 @@ final class Runner
         try {
             (new Process($side->dir))->runToStderr($command);
         } catch (CommandFailed $failed) {
-            throw new Failure('Frozen '.$js->manager.' install failed for side '.$side->name.'.', $failed->exitCode);
+            throw new Failure('Frozen '.$js->manager.' install failed for path '.$side->path.'.', $failed->exitCode);
         }
     }
 
@@ -260,7 +260,7 @@ final class Runner
     }
 
     /** @return array<string, list<array<string, mixed>>> */
-    private function advisoriesFor(Side $side, string $manager): array
+    private function advisoriesFor(AppPath $side, string $manager): array
     {
         $audited = $this->auditSide($side, $manager);
 
@@ -268,7 +268,7 @@ final class Runner
     }
 
     /** @return array{composer?: array<string, list<array<string, mixed>>>, js?: array<string, list<array<string, mixed>>>} */
-    private function auditSide(Side $side, ?string $only = null): array
+    private function auditSide(AppPath $side, ?string $only = null): array
     {
         $process = new Process($side->dir);
         $result = [];
@@ -307,11 +307,11 @@ final class Runner
     /** @param array<string, array<string, mixed>> $candidates
      *  @param array<string, mixed> $fields
      */
-    private function add(array &$candidates, string $side, string $manager, string $name, string $reason, array $fields): void
+    private function add(array &$candidates, string $path, string $manager, string $name, string $reason, array $fields): void
     {
-        $key = $side.':'.$manager.':'.$name;
+        $key = $path.':'.$manager.':'.$name;
         $row = $candidates[$key] ?? [
-            'side' => $side,
+            'path' => $path,
             'manager' => $manager,
             'package' => $name,
             'reasons' => [],
@@ -329,7 +329,7 @@ final class Runner
     private function foldExpo(array &$candidates, array $expoSides): void
     {
         foreach ($candidates as $key => $row) {
-            if ($row['manager'] !== 'js' || $row['package'] === 'expo' || ! isset($expoSides[$row['side']]) || ! Expo::coupled($row['package'])) {
+            if ($row['manager'] !== 'js' || $row['package'] === 'expo' || ! isset($expoSides[$row['path']]) || ! Expo::coupled($row['package'])) {
                 continue;
             }
             $reasons = array_values(array_filter($row['reasons'], fn (string $reason): bool => $reason !== 'major'));
@@ -343,7 +343,7 @@ final class Runner
             $candidates[$key] = $row;
         }
         foreach ($candidates as $key => $row) {
-            if ($row['manager'] === 'js' && $row['package'] === 'expo' && isset($expoSides[$row['side']]) && in_array('major', $row['reasons'], true)) {
+            if ($row['manager'] === 'js' && $row['package'] === 'expo' && isset($expoSides[$row['path']]) && in_array('major', $row['reasons'], true)) {
                 $candidates[$key]['align'] = 'expo-install-fix';
             }
         }

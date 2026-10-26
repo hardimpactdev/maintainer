@@ -33,14 +33,14 @@ The same file is in `resources/dependencies`. Copy it to `scripts/dependencies` 
 Run the commands from the repository root.
 
 ```text
-vendor/bin/maintainer dependencies routine [side]
-vendor/bin/maintainer dependencies detect [side]
-vendor/bin/maintainer dependencies package [side] <composer|js> <package> <x.y.z> [--advisory ID ...]
-vendor/bin/maintainer dependencies package [side] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...]
+vendor/bin/maintainer dependencies routine [path]
+vendor/bin/maintainer dependencies detect [path]
+vendor/bin/maintainer dependencies package [path] <composer|js> <package> <x.y.z> [--advisory ID ...]
+vendor/bin/maintainer dependencies package [path] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...]
 vendor/bin/maintainer dependencies check
 ```
 
-`routine` updates within the ranges already declared. For each selected side it runs `composer update --no-interaction` when that side has Composer, then the JavaScript update. It stops at the first failed command and returns that exit code.
+`routine` updates within the ranges already declared. For each selected path it runs `composer update --no-interaction` when that path has Composer, then the JavaScript update. It stops at the first failed command and returns that exit code.
 
 `detect` prints one JSON object on stdout. A frozen install may create `node_modules`, and it does not change the lockfile. Bootstrap output goes to stderr. `package` updates one direct dependency to the exact version you pass.
 
@@ -52,30 +52,27 @@ package composer livewire/livewire 4.9.9 security PKSA-xhv3-nr94-h8db
 
 `--advisory` is the same thing. Repeat the flag for more than one advisory. Security mode requires at least one advisory id. Major mode accepts none.
 
-Omit `side` when only one side has that manager. If several sides have it, pass the side name. `routine` and `detect` without a side cover every side.
+`package` uses `.` when you omit the path. Pass a path, such as `server/web` or `mobile`, to select another configured directory. `routine` and `detect` without a path cover every configured path.
 
 `check` runs the commands in `maintainer.json` `checks`. Routine, detect, and package never run those checks. Orbit's handoff check does that work.
 
 ## Config
 
-A repository with one root application can omit `maintainer.json`. The implicit side is named `root`. Composer is included when `composer.json` exists. JavaScript is included when `package.json` exists.
+A repository with one root application can omit `maintainer.json`. That means `paths` is `["."]`. Composer is included when `composer.json` exists in the path. JavaScript is included when `package.json` exists there. There is no name and no managers list.
 
 ```json
 {
-    "sides": [
-        { "name": "web", "dir": ".", "managers": ["composer", "js"] },
-        { "name": "mobile", "dir": "mobile", "managers": ["js"] }
-    ],
+    "paths": [".", "mobile"],
     "checks": ["composer check"]
 }
 ```
 
-`maintainer.schema.json` is the schema. The command rejects unknown keys, a side named `composer` or `js`, and a directory that escapes the repository.
+An application in a subdirectory is one path, for example `{ "paths": ["server/web"] }`. `maintainer.schema.json` is the schema. The command rejects unknown keys, a repeated path, an absolute path, `..`, and a symlink that leaves the repository. A `sides` key is rejected and the error tells you to use `paths`.
 
 Everything else is detected:
 
-- The JavaScript manager comes from `packageManager` or `devEngines.packageManager` (`npm` or `bun`). A declared manager must have its own lockfile in that side (`package-lock.json` for npm, `bun.lock` for Bun) and must not have the other manager's lockfile. When both fields are absent, `package-lock.json` means npm and `bun.lock` means Bun. None, or both lockfiles, is an error. The command does not add `packageManager`.
-- Vite+ is used when `vite-plus` is a direct dependency. The command is the side's `node_modules/.bin/vp`. When `node_modules` is absent, the command first runs a frozen install that does not change the lockfile: `npm ci --ignore-scripts`, or `bun install --frozen-lockfile --ignore-scripts`. Its output goes to stderr. A failed install stops the command. If `node_modules` is present but `vp` is missing or not executable, the command fails and does not install again. A global `vp` is never used.
+- The JavaScript manager comes from `packageManager` or `devEngines.packageManager` (`npm` or `bun`). A declared manager must have its own lockfile in that path (`package-lock.json` for npm, `bun.lock` for Bun) and must not have the other manager's lockfile. When both fields are absent, `package-lock.json` means npm and `bun.lock` means Bun. None, or both lockfiles, is an error. The command does not add `packageManager`.
+- Vite+ is used when `vite-plus` is a direct dependency. The command is that path's `node_modules/.bin/vp`. When `node_modules` is absent, the command first runs a frozen install that does not change the lockfile: `npm ci --ignore-scripts`, or `bun install --frozen-lockfile --ignore-scripts`. Its output goes to stderr. A failed install stops the command. If `node_modules` is present but `vp` is missing or not executable, the command fails and does not install again. A global `vp` is never used.
 - Without Vite+, the declared manager is called directly. An Expo app on plain npm is the usual case.
 - Release age comes from the policy file that is already there. A missing policy is left missing.
 
@@ -100,7 +97,7 @@ An Expo SDK major is one candidate, `package` `expo`, with `"align": "expo-insta
     "schema": 1,
     "candidates": [
         {
-            "side": "root",
+            "path": ".",
             "manager": "js",
             "package": "shadcn",
             "reasons": ["security"],

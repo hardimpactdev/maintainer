@@ -5,10 +5,7 @@ declare(strict_types=1);
 beforeEach(function () {
     [$this->directory, $this->repo] = newMaintainerRepo();
     file_put_contents($this->repo.'/maintainer.json', json_encode([
-        'sides' => [
-            ['name' => 'web', 'dir' => '.', 'managers' => ['composer', 'js']],
-            ['name' => 'mobile', 'dir' => 'mobile', 'managers' => ['js']],
-        ],
+        'paths' => ['.', 'mobile'],
     ]));
     mkdir($this->repo.'/mobile/node_modules/.bin', 0755, true);
     file_put_contents($this->repo.'/mobile/package.json', json_encode([
@@ -75,22 +72,22 @@ it('detects both sides, folds an Expo SDK bump, and keeps real advisory ids', fu
     $result = runMaintainer($this->directory, $this->repo, ['detect'], bothSides());
     expect($result->getExitCode())->toBe(0, $result->getErrorOutput());
     $rows = json_decode($result->getOutput(), true, flags: JSON_THROW_ON_ERROR)['candidates'];
-    $keys = array_map(fn (array $row) => $row['side'].':'.$row['package'].':'.implode('+', $row['reasons']), $rows);
+    $keys = array_map(fn (array $row) => $row['path'].':'.$row['package'].':'.implode('+', $row['reasons']), $rows);
     expect($keys)->toBe([
+        '.:livewire/livewire:security',
+        '.:other/pkg:major',
+        '.:react:major+security',
         'mobile:expo:major',
         'mobile:expo-camera:security',
         'mobile:lodash:major',
         'mobile:react-native:security',
-        'web:livewire/livewire:security',
-        'web:other/pkg:major',
-        'web:react:major+security',
     ]);
-    expect($rows[0]['align'])->toBe('expo-install-fix')
-        ->and($rows[0]['current'])->toBe('57.0.28')
-        ->and($rows[0]['latest'])->toBe('58.0.0')
-        ->and($rows[1]['advisories'][0]['id'])->toBe('999')
-        ->and($rows[3]['advisories'][0]['id'])->toBe('1000')
-        ->and($rows[6]['advisories'][0]['id'])->toBe('123');
+    expect($rows[3]['align'])->toBe('expo-install-fix')
+        ->and($rows[3]['current'])->toBe('57.0.28')
+        ->and($rows[3]['latest'])->toBe('58.0.0')
+        ->and($rows[4]['advisories'][0]['id'])->toBe('999')
+        ->and($rows[6]['advisories'][0]['id'])->toBe('1000')
+        ->and($rows[2]['advisories'][0]['id'])->toBe('123');
     expect(commandLog($this->directory))->toContain('npm|outdated --json|'.$this->repo.'/mobile', 'npm|audit --json|'.$this->repo.'/mobile');
 });
 
@@ -154,10 +151,10 @@ it('installs an Expo security fix through expo and aligns coupled packages', fun
         ->and($log)->not->toContain('npm|install');
 });
 
-it('requires a side when several sides contain the same manager', function () {
+it('defaults package to the root path when several paths have js', function () {
     $result = runMaintainer($this->directory, $this->repo, ['package', 'js', 'lodash', '5.0.0', 'major']);
     expect($result->getExitCode())->toBe(64)
-        ->and($result->getErrorOutput())->toContain('Several sides have js')
+        ->and($result->getErrorOutput())->toContain('Target must be one existing direct registry dependency')
         ->and(is_file($this->directory.'/commands'))->toBeFalse();
 });
 
@@ -175,7 +172,7 @@ it('refuses a JavaScript side with no packageManager and no lockfile', function 
     unlink($this->repo.'/mobile/package-lock.json');
     $result = runMaintainer($this->directory, $this->repo, ['detect', 'mobile']);
     expect($result->getExitCode())->toBe(70)
-        ->and($result->getErrorOutput())->toContain('Cannot tell whether this side uses npm or Bun')
+        ->and($result->getErrorOutput())->toContain('Cannot tell whether this directory uses npm or Bun')
         ->and(is_file($this->directory.'/commands'))->toBeFalse();
 });
 
