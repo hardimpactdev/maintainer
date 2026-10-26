@@ -39,6 +39,11 @@ final class Cli
 
             return;
         }
+        if ($mode === 'summary') {
+            (new Summary($runner))->write($config, $this->base($rest));
+
+            return;
+        }
         if ($mode === 'check') {
             if ($rest !== []) {
                 $this->usage();
@@ -127,8 +132,20 @@ final class Cli
     }
 
 
+    /** @param list<string> $rest */
+    private function base(array $rest): ?string
+    {
+        if ($rest === []) {
+            return null;
+        }
+        if (count($rest) === 2 && $rest[0] === '--base' && $rest[1] !== '') {
+            return $rest[1];
+        }
+        $this->usage();
+    }
+
     private function usage(): never
     {
-        throw new Failure('Usage: maintainer dependencies routine [path] | detect [path] | package [path] <composer|js> <package> <x.y.z> [--advisory ID ...] | package [path] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...] | check');
+        throw new Failure('Usage: maintainer dependencies routine [path] | detect [path] | summary [--base <git ref>] | package [path] <composer|js> <package> <x.y.z> [--advisory ID ...] | package [path] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...] | check');
     }
 }

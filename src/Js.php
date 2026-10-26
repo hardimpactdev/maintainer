@@ -214,23 +214,83 @@ final class JsReports
         }
         $result = [];
         $direct = $js->direct;
-        foreach (array_intersect_key($data['vulnerabilities'] ?? [], $direct) as $name => $item) {
-            $result[$name] = $this->npmAdvisories($data['vulnerabilities'], (string) $name);
+        $vulnerabilities = is_array($data['vulnerabilities'] ?? null) ? $data['vulnerabilities'] : [];
+        $aliases = $this->npmAliases($js, $vulnerabilities);
+        $seen = [];
+        $add = function (string $bucket, string $installed) use (&$result, &$seen, $vulnerabilities): void {
+            if (isset($seen[$bucket][$installed])) {
+                return;
+            }
+            $seen[$bucket][$installed] = true;
+            foreach ($this->npmAdvisories($vulnerabilities, $installed) as $advisory) {
+                $result[$bucket][$advisory['id']] = $advisory;
+            }
+        };
+        foreach (array_intersect_key($vulnerabilities, $direct) as $name => $item) {
+            $add((string) $name, (string) $name);
+        }
+        foreach ($vulnerabilities as $name => $item) {
+            if (! is_string($name)) {
+                continue;
+            }
+            foreach (Aliases::buckets($name, $direct, $aliases) as $declared) {
+                $add($declared, $name);
+            }
+        }
+        foreach ($result as $name => $advisories) {
+            ksort($advisories, SORT_STRING);
+            $result[$name] = array_values($advisories);
         }
         foreach ($data['advisories'] ?? [] as $item) {
             if (! is_array($item) || ! is_string($item['module_name'] ?? null)) {
                 throw new Failure('Invalid npm advisory', 70);
             }
             $name = $item['module_name'];
-            $result[$name][] = [
+            $advisory = [
                 'id' => (string) ($item['id'] ?? ''),
                 'url' => $item['url'] ?? null,
                 'title' => $item['title'] ?? '',
                 'affected' => $item['vulnerable_versions'] ?? null,
+                'module' => $name,
             ];
+            $buckets = array_key_exists($name, $direct) ? [$name] : Aliases::buckets($name, $direct, $aliases);
+            if ($buckets === []) {
+                $buckets = [$name];
+            }
+            foreach ($buckets as $bucket) {
+                $result[$bucket][] = $advisory;
+            }
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<mixed> $vulnerabilities
+     * @return array<string, string>
+     */
+    private function npmAliases(JsWorkspace $js, array $vulnerabilities): array
+    {
+        $packages = $this->npmLock($js->dir)['packages'] ?? [];
+        $aliases = Aliases::fromPackages(is_array($packages) ? $packages : [], 'npm');
+        foreach ($vulnerabilities as $name => $item) {
+            if (! is_string($name) || ! is_array($item)) {
+                continue;
+            }
+            foreach ($item['nodes'] ?? [] as $node) {
+                if (! is_string($node)) {
+                    continue;
+                }
+                $declared = Aliases::declaredFromNode($node);
+                if ($declared === null || $node !== 'node_modules/'.$declared || isset($aliases[$declared])) {
+                    continue;
+                }
+                $aliases[$declared] = $name;
+            }
+        }
+        ksort($aliases, SORT_STRING);
+
+        return $aliases;
     }
 
     /** @param array<mixed> $vulnerabilities
@@ -257,12 +317,14 @@ final class JsReports
                 } elseif (is_array($via) && isset($via['source'], $via['url'])
                     && (is_int($via['source']) || is_string($via['source'])) && (string) $via['source'] !== '' && is_string($via['url'])) {
                     $id = (string) $via['source'];
+                    $module = $via['name'] ?? null;
                     $result[$id] = [
                         'id' => $id,
                         'url' => $via['url'],
                         'title' => $via['title'] ?? '',
                         'affected' => $via['range'] ?? null,
                         'severity' => $via['severity'] ?? null,
+                        'module' => is_string($module) && $module !== '' ? $module : $current,
                     ];
                 } else {
                     throw new Failure('Invalid npm advisory for '.$current, 70);
@@ -305,12 +367,15 @@ final class JsReports
                     'title' => $entry['title'] ?? '',
                     'affected' => $entry['vulnerable_versions'] ?? null,
                     'severity' => $entry['severity'] ?? null,
+                    'module' => $name,
                 ];
             }
         }
         if ($byPackage === []) {
             return [];
         }
+        $packages = $this->bunLock($js->dir)['packages'] ?? [];
+        $aliases = Aliases::fromPackages(is_array($packages) ? $packages : [], 'bun');
         $directNames = [];
         foreach ($js->direct as $name => $range) {
             if (is_string($name)) {
@@ -369,12 +434,11 @@ final class JsReports
         foreach ($byPackage as $package => $advisories) {
             if (isset($directNames[$package])) {
                 $assign([$package], $advisories);
+
+                continue;
             }
-        }
-        foreach ($byPackage as $package => $advisories) {
-            if (! isset($directNames[$package])) {
-                $assign($ownersOf($package), $advisories);
-            }
+            $aliased = Aliases::buckets($package, $directNames, $aliases);
+            $assign($aliased !== [] ? $aliased : $ownersOf($package), $advisories);
         }
         foreach ($buckets as $name => $advisories) {
             $buckets[$name] = array_values($advisories);
@@ -395,8 +459,15 @@ final class JsReports
             if (! is_string($name) || ! is_array($entry)) {
                 throw new Failure('Invalid bun.lock package entry', 70);
             }
+            if (! is_string($entry[0] ?? null) || $entry[0] === '') {
+                throw new Failure('Invalid bun.lock package entry', 70);
+            }
             $meta = $entry[2] ?? [];
             $deps = [];
+            $installed = Aliases::installedName($entry[0]);
+            if ($installed !== $name) {
+                $deps[$installed] = true;
+            }
             if (is_array($meta)) {
                 foreach (['dependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
                     if (! isset($meta[$section]) || ! is_array($meta[$section])) {
@@ -577,14 +648,19 @@ final class JsReports
         return $rows;
     }
 
-    private function isMajor(string $current, string $latest): bool
+    public static function majorChange(string $current, string $latest): bool
     {
-        $current = $this->stripAge($current);
-        $latest = $this->stripAge($latest);
+        $current = preg_replace('/\s*\*$/', '', trim($current)) ?? trim($current);
+        $latest = preg_replace('/\s*\*$/', '', trim($latest)) ?? trim($latest);
 
         return preg_match('/^v?(\d+)\.(\d+)\./', $current, $left) === 1
             && preg_match('/^v?(\d+)\.(\d+)\./', $latest, $right) === 1
             && ($left[1] !== $right[1] || ($left[1] === '0' && $left[2] !== $right[2]));
+    }
+
+    private function isMajor(string $current, string $latest): bool
+    {
+        return self::majorChange($current, $latest);
     }
 
     private function stripAge(string $version): string
