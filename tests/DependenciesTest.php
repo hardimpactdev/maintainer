@@ -76,7 +76,7 @@ describe('detect and package', function () {
         expect($payload['schema'])->toBe(1);
         $rows = $payload['candidates'];
         expect(array_column($rows, 'package'))->toBe(['livewire/livewire', 'other/pkg', 'react'])
-            ->and($rows[0]['side'])->toBe('root')
+            ->and($rows[0]['path'])->toBe('.')
             ->and($rows[0]['advisories'])->toHaveCount(2)
             ->and($rows[2]['reasons'])->toBe(['major', 'security'])
             ->and($rows[2]['advisories'][0]['id'])->toBe('123');
@@ -225,7 +225,7 @@ describe('detect and package', function () {
         file_put_contents($this->repo.'/maintainer-exceptions.json', json_encode([
             'schema' => 1,
             'exceptions' => [[
-                'side' => 'root',
+                'path' => '.',
                 'manager' => 'composer',
                 'package' => 'existing/pkg',
                 'recorded_on' => '2026-10-01',
@@ -238,7 +238,7 @@ describe('detect and package', function () {
         $payload = json_decode($result->getOutput(), true, flags: JSON_THROW_ON_ERROR);
         expect($payload['candidates'])->toBe([])
             ->and($payload['stale_exceptions'])->toBe([[
-                'side' => 'root',
+                'path' => '.',
                 'manager' => 'composer',
                 'package' => 'existing/pkg',
                 'recorded_on' => '2026-10-01',

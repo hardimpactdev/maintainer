@@ -34,8 +34,8 @@ final class Cli
         $config = Config::load(getcwd() ?: '.');
         $runner = new Runner;
         if ($mode === 'routine' || $mode === 'detect') {
-            $side = $this->optionalSide($rest);
-            $mode === 'routine' ? $runner->routine($config, $side) : $runner->detect($config, $side);
+            $path = $this->optionalPath($rest);
+            $mode === 'routine' ? $runner->routine($config, $path) : $runner->detect($config, $path);
 
             return;
         }
@@ -50,17 +50,17 @@ final class Cli
         if ($mode !== 'package') {
             $this->usage();
         }
-        [$side, $manager, $package, $version, $purpose, $ids] = $this->packageArgs($rest);
-        $runner->package($config, $side, $manager, $package, $version, $purpose, $ids);
+        [$path, $manager, $package, $version, $purpose, $ids] = $this->packageArgs($rest);
+        $runner->package($config, $path, $manager, $package, $version, $purpose, $ids);
     }
 
     /** @param list<string> $rest */
-    private function optionalSide(array $rest): ?string
+    private function optionalPath(array $rest): ?string
     {
         if ($rest === []) {
             return null;
         }
-        if (count($rest) === 1 && $this->sideName($rest[0])) {
+        if (count($rest) === 1 && ! str_starts_with($rest[0], '-')) {
             return $rest[0];
         }
         $this->usage();
@@ -68,16 +68,16 @@ final class Cli
 
     /**
      * @param list<string> $rest
-     * @return array{0: ?string, 1: string, 2: string, 3: string, 4: string, 5: list<string>}
+     * @return array{0: string, 1: string, 2: string, 3: string, 4: string, 5: list<string>}
      */
     private function packageArgs(array $rest): array
     {
-        $side = null;
+        $path = '.';
         if (isset($rest[0]) && ! in_array($rest[0], ['composer', 'js'], true)) {
-            if (! $this->sideName($rest[0])) {
-                throw new Failure('Invalid single-package target');
+            if (str_starts_with($rest[0], '-')) {
+                $this->usage();
             }
-            $side = array_shift($rest);
+            $path = array_shift($rest);
         }
         if (count($rest) < 3) {
             $this->usage();
@@ -94,7 +94,7 @@ final class Cli
             throw new Failure('Invalid single-package target');
         }
         if ($rest === []) {
-            return [$side, $manager, $package, $version, 'major', []];
+            return [$path, $manager, $package, $version, 'major', []];
         }
         if ($rest[0] === '--advisory') {
             if (count($rest) % 2 !== 0) {
@@ -123,17 +123,12 @@ final class Cli
             }
         }
 
-        return [$side, $manager, $package, $version, $purpose, $ids];
+        return [$path, $manager, $package, $version, $purpose, $ids];
     }
 
-    private function sideName(string $name): bool
-    {
-        return preg_match('/^[a-z][a-z0-9-]{0,40}$/', $name) === 1
-            && ! in_array($name, ['composer', 'js', 'routine', 'detect', 'package', 'check'], true);
-    }
 
     private function usage(): never
     {
-        throw new Failure('Usage: maintainer dependencies routine [side] | detect [side] | package [side] <composer|js> <package> <x.y.z> [--advisory ID ...] | package [side] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...] | check');
+        throw new Failure('Usage: maintainer dependencies routine [path] | detect [path] | package [path] <composer|js> <package> <x.y.z> [--advisory ID ...] | package [path] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...] | check');
     }
 }

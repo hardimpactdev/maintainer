@@ -10,12 +10,12 @@ afterEach(function () {
     removeMaintainerRepo($this->directory);
 });
 
-it('rejects a side name that collides with a manager', function () {
+it('rejects a maintainer.json that still lists sides', function () {
     file_put_contents($this->repo.'/maintainer.json', json_encode([
-        'sides' => [['name' => 'composer', 'dir' => '.', 'managers' => ['composer']]],
+        'sides' => [['name' => 'web', 'dir' => '.', 'managers' => ['composer', 'js']]],
     ]));
     $result = runMaintainer($this->directory, $this->repo, ['detect']);
-    expect($result->getExitCode())->toBe(70)->and($result->getErrorOutput())->toContain('side name is invalid');
+    expect($result->getExitCode())->toBe(70)->and($result->getErrorOutput())->toContain('sides is no longer valid. Use paths.');
 });
 
 it('runs configured checks and reports when none are set', function () {
@@ -24,7 +24,7 @@ it('runs configured checks and reports when none are set', function () {
 
     file_put_contents($this->repo.'/maintainer.json', json_encode([
         'checks' => ['php -r "exit(3);"'],
-        'sides' => [['name' => 'web', 'dir' => '.', 'managers' => ['composer']]],
+        'paths' => ['.'],
     ]));
     $failed = runMaintainer($this->directory, $this->repo, ['check'], [], [
         'PATH' => $this->directory.'/bin:/usr/bin:/bin',

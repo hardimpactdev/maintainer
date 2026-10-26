@@ -48,7 +48,7 @@ final class JsWorkspace
         if ($bun) {
             return 'bun';
         }
-        throw new Failure('Cannot tell whether this side uses npm or Bun. Declare packageManager or add package-lock.json or bun.lock.', 70);
+        throw new Failure('Cannot tell whether this directory uses npm or Bun. Declare packageManager or add package-lock.json or bun.lock.', 70);
     }
 
     private static function requireDeclaredLock(string $manager, bool $npm, bool $bun): void
@@ -61,13 +61,13 @@ final class JsWorkspace
             return;
         }
         if (! $hasOwn && $hasOther) {
-            throw new Failure('package.json declares '.$manager.' but this side has '.$other.' and no '.$own.'.', 70);
+            throw new Failure('package.json declares '.$manager.' but this directory has '.$other.' and no '.$own.'.', 70);
         }
         if (! $hasOwn) {
-            throw new Failure('package.json declares '.$manager.' but this side has no '.$own.'.', 70);
+            throw new Failure('package.json declares '.$manager.' but this directory has no '.$own.'.', 70);
         }
 
-        throw new Failure('package.json declares '.$manager.' but this side also has '.$other.'.', 70);
+        throw new Failure('package.json declares '.$manager.' but this directory also has '.$other.'.', 70);
     }
 
     /** @param array<mixed> $manifest */

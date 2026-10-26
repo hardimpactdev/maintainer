@@ -35,7 +35,7 @@ it('reads current from the lockfile when npm outdated omits it', function (strin
         ->and($rows[0]['current'])->toBe($expoCurrent)
         ->and($rows[0]['latest'])->toBe('58.0.14')
         ->and($rows[0]['align'])->toBe('expo-install-fix')
-        ->and($rows[0]['side'])->toBe('mobile');
+        ->and($rows[0]['path'])->toBe('mobile');
     expect(commandLog($this->directory))->toContain('npm|outdated --json|'.$this->repo.'/mobile')
         ->and(commandLog($this->directory))->not->toContain('npm|install')
         ->and(commandLog($this->directory))->not->toContain('npm|ci')
@@ -138,9 +138,7 @@ function fixtureJson(string $name): array
 function writeMobileSide(string $repo, array $names, array $versions): void
 {
     file_put_contents($repo.'/maintainer.json', json_encode([
-        'sides' => [
-            ['name' => 'mobile', 'dir' => 'mobile', 'managers' => ['js']],
-        ],
+        'paths' => ['mobile'],
     ]));
     mkdir($repo.'/mobile');
     $dependencies = [];

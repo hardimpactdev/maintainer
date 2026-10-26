@@ -26,21 +26,21 @@ it('refuses a declared manager when its lockfile is missing or foreign', functio
     'npm with only bun.lock' => [
         'npm@11.12.0',
         ['bun.lock'],
-        'package.json declares npm but this side has bun.lock and no package-lock.json.',
+        'package.json declares npm but this directory has bun.lock and no package-lock.json.',
     ],
     'bun with only package-lock.json' => [
         'bun@1.3.14',
         ['package-lock.json'],
-        'package.json declares bun but this side has package-lock.json and no bun.lock.',
+        'package.json declares bun but this directory has package-lock.json and no bun.lock.',
     ],
     'npm with no lockfile' => [
         'npm@11.12.0',
         [],
-        'package.json declares npm but this side has no package-lock.json.',
+        'package.json declares npm but this directory has no package-lock.json.',
     ],
     'bun with both lockfiles' => [
         'bun@1.3.14',
         ['package-lock.json', 'bun.lock'],
-        'package.json declares bun but this side also has package-lock.json.',
+        'package.json declares bun but this directory also has package-lock.json.',
     ],
 ]);

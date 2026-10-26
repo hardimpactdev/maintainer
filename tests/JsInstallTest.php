@@ -75,7 +75,7 @@ it('stops when the frozen install fails and does not run Vite+', function () {
         'DEPENDENCY_TEST_NPM_EXIT' => '17',
     ]);
     expect($result->getExitCode())->toBe(17)
-        ->and($result->getErrorOutput())->toContain('Frozen npm install failed for side root.')
+        ->and($result->getErrorOutput())->toContain('Frozen npm install failed for path .')
         ->and(commandLog($this->directory))->toBe('npm|ci --ignore-scripts|'.$this->repo."\n")
         ->and(is_file($this->repo.'/node_modules/.bin/vp'))->toBeFalse();
 });
