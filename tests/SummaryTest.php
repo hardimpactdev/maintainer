@@ -387,6 +387,186 @@ describe('summary', function () {
             ->and($result->getOutput())->not->toContain('| is-number |');
     });
 
+    it('does not call a removed direct dependency a security fix while it stays installed', function () {
+        $manifest = json_decode((string) file_get_contents($this->repo.'/package.json'), true);
+        $manifest['dependencies']['express'] = '^4.18.2';
+        $manifest['dependencies']['qs'] = '6.11.0';
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        $locked = npmLock([
+            'express' => '4.18.2',
+            'qs' => '6.11.0',
+        ]);
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => (string) file_get_contents($this->repo.'/composer.json'),
+            'package.json' => json_encode($manifest),
+            'package-lock.json' => $locked,
+            'composer.lock' => composerLock(['livewire/livewire' => '4.2.0']),
+        ]);
+        unset($manifest['dependencies']['qs']);
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        $qs = [
+            [1093, 'GHSA-w7fw-mjwx-w883', 'qs arrayLimit bypass', '<6.14.1'],
+            [1094, 'GHSA-6rw7-vpxm-498p', 'qs parse depth', '<6.14.1'],
+            [1095, 'GHSA-4mjr-xmp4-gh2g', 'qs prototype pollution', '<6.10.3'],
+        ];
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [['data' => ['advisories' => []]]],
+            'vp pm audit --json' => [
+                ['code' => 1, 'data' => npmViaFinding('express', 'qs', $qs, false)],
+                ['code' => 1, 'data' => npmViaFinding('express', 'qs', $qs, true)],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toBe(summaryText(
+                'Remove qs',
+                'Removed qs 6.11.0.',
+                'Nothing changes for users of the app.',
+                [['qs', '6.11.0', '—', '']],
+            ))
+            ->and($result->getOutput())->not->toContain('security fix', 'GHSA-w7fw-mjwx-w883', 'GHSA-6rw7-vpxm-498p', 'GHSA-4mjr-xmp4-gh2g');
+    });
+
+    it('lists removals when composer audit skips an empty lock', function () {
+        $composer = [
+            'require' => ['psr/log' => '^3.0'],
+            'require-dev' => ['psr/container' => '^2.0'],
+        ];
+        file_put_contents($this->repo.'/composer.json', json_encode($composer));
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => json_encode($composer),
+            'composer.lock' => composerLock(['psr/log' => '3.0.1'], ['psr/container' => '2.0.2']),
+            'package.json' => (string) file_get_contents($this->repo.'/package.json'),
+            'package-lock.json' => (string) file_get_contents($this->repo.'/package-lock.json'),
+        ]);
+        file_put_contents($this->repo.'/composer.json', json_encode(['require' => [], 'require-dev' => []]));
+        file_put_contents($this->repo.'/composer.lock', composerLock([], []));
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [
+                ['code' => 0, 'raw' => ''],
+                ['data' => ['advisories' => []]],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toBe(summaryText(
+                'Update dependencies for '.gmdate('F Y'),
+                'Updated 2 packages.',
+                'Nothing changes for users of the app.',
+                [
+                    ['psr/container', '2.0.2', '—', ''],
+                    ['psr/log', '3.0.1', '—', ''],
+                ],
+            ))
+            ->and($result->getErrorOutput())->not->toContain('Invalid JSON');
+    });
+
+    it('lists removals when one path in a multi-path repo has an empty composer lock', function () {
+        unlink($this->repo.'/composer.json');
+        mkdir($this->repo.'/server');
+        $composer = [
+            'require' => ['psr/log' => '^3.0'],
+            'require-dev' => ['psr/container' => '^2.0'],
+        ];
+        file_put_contents($this->repo.'/server/composer.json', json_encode($composer));
+        file_put_contents($this->repo.'/maintainer.json', json_encode(['paths' => ['.', 'server']]));
+        $base = commitSummary($this->directory, $this->repo, [
+            'maintainer.json' => (string) file_get_contents($this->repo.'/maintainer.json'),
+            'package.json' => (string) file_get_contents($this->repo.'/package.json'),
+            'package-lock.json' => (string) file_get_contents($this->repo.'/package-lock.json'),
+            'server/composer.json' => json_encode($composer),
+            'server/composer.lock' => composerLock(['psr/log' => '3.0.1'], ['psr/container' => '2.0.2']),
+        ]);
+        file_put_contents($this->repo.'/server/composer.json', json_encode(['require' => [], 'require-dev' => []]));
+        file_put_contents($this->repo.'/server/composer.lock', composerLock([], []));
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [
+                ['code' => 0, 'raw' => ''],
+                ['data' => ['advisories' => []]],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toBe(summaryText(
+                'Update dependencies for '.gmdate('F Y'),
+                'Updated 2 packages in `server`.',
+                'Nothing changes for users of the app.',
+                [
+                    ['psr/container (server)', '2.0.2', '—', ''],
+                    ['psr/log (server)', '3.0.1', '—', ''],
+                ],
+            ))
+            ->and($result->getErrorOutput())->not->toContain('Invalid JSON');
+    });
+
+    it('still rejects an empty composer audit when the lock lists packages', function () {
+        $composer = ['require' => ['psr/log' => '^3.0']];
+        file_put_contents($this->repo.'/composer.json', json_encode($composer));
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => json_encode($composer),
+            'composer.lock' => composerLock(['psr/log' => '3.0.1']),
+            'package.json' => (string) file_get_contents($this->repo.'/package.json'),
+            'package-lock.json' => (string) file_get_contents($this->repo.'/package-lock.json'),
+        ]);
+        file_put_contents($this->repo.'/composer.lock', composerLock(['psr/log' => '3.0.2']));
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [
+                ['code' => 0, 'raw' => ''],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(70)
+            ->and($result->getOutput())->toBe('')
+            ->and($result->getErrorOutput())->toContain('Invalid JSON from composer audit --locked --format=json');
+    });
+
+    it('attributes a bun alias advisory to the declared package', function () {
+        unlink($this->repo.'/package-lock.json');
+        $manifest = json_decode((string) file_get_contents($this->repo.'/package.json'), true);
+        $manifest['packageManager'] = 'bun@1.4.0';
+        $manifest['dependencies'] = [
+            'alias' => 'npm:lodash@4.17.20',
+            'vite-plus' => '^0.1.0',
+        ];
+        file_put_contents($this->repo.'/package.json', json_encode($manifest));
+        $base = commitSummary($this->directory, $this->repo, [
+            'composer.json' => (string) file_get_contents($this->repo.'/composer.json'),
+            'package.json' => json_encode($manifest),
+            'bun.lock' => bunLock([
+                'alias' => ['descriptor' => 'lodash@4.17.20'],
+                'vite-plus' => '0.1.0',
+            ]),
+            'composer.lock' => composerLock(['livewire/livewire' => '4.2.0']),
+        ]);
+        file_put_contents($this->repo.'/bun.lock', bunLock([
+            'alias' => ['descriptor' => 'lodash@4.17.21'],
+            'vite-plus' => '0.1.0',
+        ]));
+        $audit = ['lodash' => [[
+            'id' => 1065,
+            'url' => 'https://github.com/advisories/GHSA-35jh-r3h4-6jhm',
+            'title' => 'Prototype pollution in lodash',
+            'severity' => 'high',
+            'vulnerable_versions' => '<4.17.21',
+        ]]];
+
+        $result = runMaintainer($this->directory, $this->repo, ['summary', '--base', $base], [
+            'composer audit --locked --format=json' => [['data' => ['advisories' => []]]],
+            'vp pm audit --json' => [
+                ['data' => new stdClass],
+                ['code' => 1, 'data' => $audit],
+            ],
+        ]);
+
+        expect($result->getExitCode())->toBe(0, $result->getErrorOutput().$result->getOutput())
+            ->and($result->getOutput())->toContain('Update alias to 4.17.21 (security fix)')
+            ->and($result->getOutput())->toContain('| alias | 4.17.20 | 4.17.21 | security fix [1065](https://github.com/advisories/GHSA-35jh-r3h4-6jhm) |')
+            ->and($result->getErrorOutput())->not->toContain('Cannot attach bun advisory', 'lodash');
+    });
 
 });
 

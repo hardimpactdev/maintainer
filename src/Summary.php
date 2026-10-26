@@ -155,7 +155,7 @@ final class Summary
             }
             foreach ($advisories as $advisory) {
                 if (is_array($advisory) && is_string($advisory['id'] ?? null) && $advisory['id'] !== '') {
-                    $present[$name][$advisory['id']] = true;
+                    $present[$this->advisoryIdentity($advisory)] = true;
                 }
             }
         }
@@ -168,7 +168,7 @@ final class Summary
                 if (! is_array($advisory) || ! is_string($advisory['id'] ?? null) || $advisory['id'] === '') {
                     continue;
                 }
-                if (isset($present[$name][$advisory['id']])) {
+                if (isset($present[$this->advisoryIdentity($advisory)])) {
                     continue;
                 }
                 $url = $advisory['url'] ?? null;
@@ -186,6 +186,17 @@ final class Summary
         ksort($merged, SORT_STRING);
 
         return $merged;
+    }
+
+    /** @param array<string, mixed> $advisory */
+    private function advisoryIdentity(array $advisory): string
+    {
+        $module = $advisory['module'] ?? '';
+        if (! is_string($module) || $module === '') {
+            $module = '';
+        }
+
+        return $module."\0".$advisory['id'];
     }
 
     /** @return array{versions: array<string, string>, instances: array<string, string>} */

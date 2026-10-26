@@ -227,6 +227,7 @@ final class JsReports
                 'url' => $item['url'] ?? null,
                 'title' => $item['title'] ?? '',
                 'affected' => $item['vulnerable_versions'] ?? null,
+                'module' => $name,
             ];
         }
 
@@ -257,12 +258,14 @@ final class JsReports
                 } elseif (is_array($via) && isset($via['source'], $via['url'])
                     && (is_int($via['source']) || is_string($via['source'])) && (string) $via['source'] !== '' && is_string($via['url'])) {
                     $id = (string) $via['source'];
+                    $module = $via['name'] ?? null;
                     $result[$id] = [
                         'id' => $id,
                         'url' => $via['url'],
                         'title' => $via['title'] ?? '',
                         'affected' => $via['range'] ?? null,
                         'severity' => $via['severity'] ?? null,
+                        'module' => is_string($module) && $module !== '' ? $module : $current,
                     ];
                 } else {
                     throw new Failure('Invalid npm advisory for '.$current, 70);
@@ -305,6 +308,7 @@ final class JsReports
                     'title' => $entry['title'] ?? '',
                     'affected' => $entry['vulnerable_versions'] ?? null,
                     'severity' => $entry['severity'] ?? null,
+                    'module' => $name,
                 ];
             }
         }
@@ -395,8 +399,15 @@ final class JsReports
             if (! is_string($name) || ! is_array($entry)) {
                 throw new Failure('Invalid bun.lock package entry', 70);
             }
+            if (! is_string($entry[0] ?? null) || $entry[0] === '') {
+                throw new Failure('Invalid bun.lock package entry', 70);
+            }
             $meta = $entry[2] ?? [];
             $deps = [];
+            $installed = $this->bunInstalledPackage($entry[0]);
+            if ($installed !== $name) {
+                $deps[$installed] = true;
+            }
             if (is_array($meta)) {
                 foreach (['dependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
                     if (! isset($meta[$section]) || ! is_array($meta[$section])) {
@@ -414,6 +425,25 @@ final class JsReports
         }
 
         return $graph;
+    }
+
+    private function bunInstalledPackage(string $descriptor): string
+    {
+        if (str_starts_with($descriptor, '@')) {
+            $slash = strpos($descriptor, '/');
+            $at = $slash === false ? false : strpos($descriptor, '@', $slash + 1);
+        } else {
+            $at = strpos($descriptor, '@');
+        }
+        if ($at === false || $at === 0) {
+            throw new Failure('Invalid bun.lock package entry', 70);
+        }
+        $name = substr($descriptor, 0, $at);
+        if ($name === '' || substr($descriptor, $at + 1) === '') {
+            throw new Failure('Invalid bun.lock package entry', 70);
+        }
+
+        return $name;
     }
 
     /**

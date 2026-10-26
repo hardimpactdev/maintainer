@@ -64,7 +64,7 @@ final class Runner
         foreach ($places as $side) {
             foreach ($this->auditSide($side) as $manager => $packages) {
                 foreach ($packages as $name => $advisories) {
-                    $this->add($candidates, $side->path, $manager, $name, 'security', ['advisories' => $advisories]);
+                    $this->add($candidates, $side->path, $manager, $name, 'security', ['advisories' => $this->publishedAdvisories($advisories)]);
                 }
             }
         }
@@ -284,7 +284,7 @@ final class Runner
         $process = new Process($side->dir);
         $result = [];
         if ($side->composer && ($only === null || $only === 'composer')) {
-            $data = $process->json(['composer', 'audit', '--locked', '--format=json']);
+            $data = $this->composerAudit($process, $side->dir);
             if (! isset($data['advisories']) || ! is_array($data['advisories'])) {
                 throw new Failure('Composer audit has no advisories field', 70);
             }
@@ -302,6 +302,7 @@ final class Runner
                         'url' => $entry['link'] ?? null,
                         'title' => $entry['title'] ?? '',
                         'affected' => $entry['affectedVersions'] ?? null,
+                        'module' => $name,
                     ];
                 }
             }
@@ -358,6 +359,76 @@ final class Runner
                 $candidates[$key]['align'] = 'expo-install-fix';
             }
         }
+    }
+
+    /**
+     * Composer prints no JSON when the lock lists no packages. That is an empty audit, not a failure.
+     *
+     * @return array<mixed>
+     */
+    private function composerAudit(Process $process, string $dir): array
+    {
+        $args = ['composer', 'audit', '--locked', '--format=json'];
+        [$code, $text, $error] = $process->capture($args);
+        $process->guard($args, $code, $text, $error);
+        if (trim($text) === '') {
+            if ($code === 0 && $this->composerLockHasNoPackages($dir)) {
+                return ['advisories' => []];
+            }
+            throw new Failure('Invalid JSON from '.implode(' ', $args).': '.$error, 70);
+        }
+        try {
+            $data = json_decode($text, true, 64, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new Failure('Invalid JSON from '.implode(' ', $args).': '.$error, 70);
+        }
+        if (! is_array($data) || array_key_exists('error', $data)) {
+            throw new Failure('Dependency command failed: '.implode(' ', $args).': '.$error, 70);
+        }
+
+        return $data;
+    }
+
+    private function composerLockHasNoPackages(string $dir): bool
+    {
+        $path = $dir.'/composer.lock';
+        if (! is_file($path)) {
+            return false;
+        }
+        try {
+            $data = json_decode((string) file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return false;
+        }
+        if (! is_array($data)) {
+            return false;
+        }
+        foreach (['packages', 'packages-dev'] as $section) {
+            if (! array_key_exists($section, $data)) {
+                continue;
+            }
+            if (! is_array($data[$section]) || $data[$section] !== []) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param list<array<string, mixed>> $advisories
+     *  @return list<array<string, mixed>>
+     */
+    private function publishedAdvisories(array $advisories): array
+    {
+        $public = [];
+        foreach ($advisories as $advisory) {
+            if (is_array($advisory)) {
+                unset($advisory['module']);
+            }
+            $public[] = $advisory;
+        }
+
+        return $public;
     }
 
     /** @return array<mixed> */
