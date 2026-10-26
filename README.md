@@ -35,6 +35,7 @@ Run the commands from the repository root.
 ```text
 vendor/bin/maintainer dependencies routine [path]
 vendor/bin/maintainer dependencies detect [path]
+vendor/bin/maintainer dependencies summary [--base <git ref>]
 vendor/bin/maintainer dependencies package [path] <composer|js> <package> <x.y.z> [--advisory ID ...]
 vendor/bin/maintainer dependencies package [path] <composer|js> <package> <x.y.z> <major|security> [advisory-id ...]
 vendor/bin/maintainer dependencies check
@@ -54,7 +55,39 @@ package composer livewire/livewire 4.9.9 security PKSA-xhv3-nr94-h8db
 
 `package` uses `.` when you omit the path. Pass a path, such as `server/web` or `mobile`, to select another configured directory. `routine` and `detect` without a path cover every configured path.
 
-`check` runs the commands in `maintainer.json` `checks`. Routine, detect, and package never run those checks. Orbit's handoff check does that work.
+`check` runs the commands in `maintainer.json` `checks`. Routine, detect, package, and summary never run those checks. Orbit's handoff check does that work.
+
+## Pull request summary
+
+`summary` compares the Composer and JavaScript lockfiles of every configured path with a git commit. It prints a pull request title, a blank line, and the body. It does not commit or open the pull request.
+
+```bash
+vendor/bin/maintainer dependencies summary --base abc123
+```
+
+Omit `--base` to use the merge base of `HEAD` and `origin/HEAD`. The working tree counts, including changes that are not committed yet.
+
+One changed package:
+
+```text
+Update livewire/livewire to 4.5.0 (security fix)
+
+Updated livewire/livewire from 4.2.0 to 4.5.0 to fix a security advisory.
+
+Nothing changes for users of the app.
+
+| Package | From | To | note |
+| --- | --- | --- | --- |
+| livewire/livewire | 4.2.0 | 4.5.0 | security fix [PKSA-xhv3-nr94-h8db](https://packagist.org/security-advisories/PKSA-xhv3-nr94-h8db) |
+
+Tested: compared the lockfiles with the base commit.
+```
+
+Several packages use `Update dependencies for October 2026`, with the month in UTC. A major upgrade, including a newer minor of a `0.x` release, tells the reader to read the upgrade notes. Otherwise the text says nothing changes for users of the app.
+
+The table lists direct dependencies whose locked version changed. It also lists a transitive package when that package changed and an audit reports an advisory for it. The advisory id is a link when the audit has an `https` URL. Audits are the same locked Composer and JavaScript audits as `detect`, read for the base commit and the working tree. A package name is never an advisory id.
+
+If nothing in that table changed, the command exits `1` and prints `No dependency changes to summarize.` on stderr. Stdout stays empty.
 
 ## Config
 
@@ -130,7 +163,7 @@ Bun `vp outdated --format json` prints a table. The trailing `*` is a release-ag
 | Code | Meaning |
 | --- | --- |
 | 0 | The command finished. |
-| 1 | The selected package still has a security advisory. |
+| 1 | The selected package still has a security advisory, or `summary` found nothing to report. |
 | child | `routine` or `package` returns the failing command's code. |
 | 64 | The arguments or the target are invalid. |
 | 70 | A tool result, lockfile, or config file is unusable. |

@@ -67,6 +67,30 @@ final class Process
      * @param list<string> $args
      * @return array{0: int, 1: string, 2: string}
      */
+    public function result(array $args, int $limit = 8388608): array
+    {
+        $out = tmpfile();
+        $err = tmpfile();
+        if ($out === false || $err === false) {
+            throw new Failure('Could not capture '.$args[0], 70);
+        }
+        $code = $this->execute($args, [$out, $err]);
+        rewind($out);
+        rewind($err);
+        $text = stream_get_contents($out, $limit + 1);
+        $error = stream_get_contents($err, 8192);
+        fclose($out);
+        fclose($err);
+        if (! is_string($text) || ! is_string($error)) {
+            throw new Failure('Could not capture '.$args[0], 70);
+        }
+        if (strlen($text) > $limit) {
+            throw new Failure('Output from '.$args[0].' is too large', 70);
+        }
+
+        return [$code, $text, $error];
+    }
+
     public function capture(array $args): array
     {
         $out = tmpfile();

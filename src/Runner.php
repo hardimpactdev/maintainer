@@ -168,6 +168,17 @@ final class Runner
         }
     }
 
+    public function prepare(AppPath $side): void
+    {
+        $this->preflight($side);
+    }
+
+    /** @return array{composer?: array<string, list<array<string, mixed>>>, js?: array<string, list<array<string, mixed>>>} */
+    public function advisories(AppPath $side, ?string $only = null): array
+    {
+        return $this->auditSide($side, $only);
+    }
+
     public function check(Config $config): void
     {
         if ($config->checks === []) {

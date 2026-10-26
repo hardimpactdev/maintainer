@@ -577,14 +577,19 @@ final class JsReports
         return $rows;
     }
 
-    private function isMajor(string $current, string $latest): bool
+    public static function majorChange(string $current, string $latest): bool
     {
-        $current = $this->stripAge($current);
-        $latest = $this->stripAge($latest);
+        $current = preg_replace('/\s*\*$/', '', trim($current)) ?? trim($current);
+        $latest = preg_replace('/\s*\*$/', '', trim($latest)) ?? trim($latest);
 
         return preg_match('/^v?(\d+)\.(\d+)\./', $current, $left) === 1
             && preg_match('/^v?(\d+)\.(\d+)\./', $latest, $right) === 1
             && ($left[1] !== $right[1] || ($left[1] === '0' && $left[2] !== $right[2]));
+    }
+
+    private function isMajor(string $current, string $latest): bool
+    {
+        return self::majorChange($current, $latest);
     }
 
     private function stripAge(string $version): string
